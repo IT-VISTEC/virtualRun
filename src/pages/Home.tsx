@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { useAuth } from '../auth/AuthProvider';
 import { ChallengeRow, Run, listChallenges, listRuns } from '../lib/api';
 import { formatShort, parseISODate, toISODate, weekStart } from '../lib/dates';
-import { fmtKm } from '../lib/format';
+import { fmtKm, fmtSteps } from '../lib/format';
 
 const DAYS = ['จ', 'อ', 'พ', 'พฤ', 'ศ', 'ส', 'อา'];
 
@@ -18,7 +18,7 @@ function WeekBars({ perDay, todayIdx }: { perDay: number[]; todayIdx: number }) 
         return (
           <g key={i}>
             <rect x={i * 40 + 6} y={96 - h} width="28" height={h} rx="8"
-              fill={v === 0 ? 'var(--tile-mid)' : i === todayIdx ? 'var(--accent)' : 'var(--ink)'} />
+              fill={v === 0 ? 'var(--tile-mid)' : i === todayIdx ? 'var(--accent)' : 'var(--bar)'} />
             <text x={i * 40 + 20} y="118" textAnchor="middle" fontSize="13" fill="var(--muted)"
               fontWeight={i === todayIdx ? 700 : 400}>{DAYS[i]}</text>
           </g>
@@ -56,7 +56,8 @@ export default function Home() {
   const perDay = Array<number>(7).fill(0);
   for (const r of weekRuns) perDay[(parseISODate(r.ran_on).getDay() + 6) % 7] += r.distance_km;
   const weekKm = perDay.reduce((a, b) => a + b, 0);
-  const weekElev = weekRuns.reduce((a, r) => a + (r.elevation_m ?? 0), 0);
+  const weekSteps = weekRuns.reduce((a, r) => a + (r.steps ?? 0), 0);
+  const active: 'km' | 'steps' = runs && runs.length > 0 ? runs[0].entry_type : 'km';
   const totalKm = (runs ?? []).reduce((a, r) => a + r.distance_km, 0);
   const goalPct = Math.min(100, (totalKm / 5) * 100);
   const todayIdx = (new Date().getDay() + 6) % 7;
@@ -68,39 +69,42 @@ export default function Home() {
           <h1>สวัสดี {first}!</h1>
           <p className="muted">วันนี้วิ่งกันไหม</p>
         </div>
-        <Link to="/runs" className="btn-dark">บันทึกการวิ่ง</Link>
+        <Link to="/runs" className="btn-accent">บันทึกการวิ่ง</Link>
       </header>
 
       {error && <p className="alert" role="alert">โหลดข้อมูลไม่สำเร็จ: {error}</p>}
 
       <div className="home-grid">
-        <section className="card recap reveal" style={{ animationDelay: '80ms' }}>
-          <div className="card-head">
-            <h2>สรุปสัปดาห์นี้</h2>
-            <span className="muted small">เริ่มวันจันทร์ที่ {formatShort(start)}</span>
-          </div>
-          <div className="recap-body">
-            <div className="stats">
-              <div>
-                <div className="stat-value">{fmtKm(weekKm)} <span>กม.</span></div>
-                <div className="muted">ระยะทาง</div>
-              </div>
-              <div className="divider" />
-              <div>
-                <div className="stat-value">{weekElev.toLocaleString('th-TH')} <span>ม.</span></div>
-                <div className="muted">ความสูงสะสม</div>
-              </div>
+        <div className="metrics">
+          <section className={`metric metric-km ${active === 'km' ? 'hot' : ''} reveal`} style={{ animationDelay: '80ms' }}
+            aria-label="ระยะทางสัปดาห์นี้">
+            <div className="metric-top">
+              <span>ระยะทางสัปดาห์นี้</span>
+              {active === 'km' && <span className="pill">อัปเดตล่าสุด</span>}
             </div>
+            <div className="metric-big">{fmtKm(weekKm)}<small>กม.</small></div>
+            <span className="metric-sub">เริ่มวันจันทร์ที่ {formatShort(start)}</span>
+          </section>
+          <section className={`metric metric-steps ${active === 'steps' ? 'hot' : ''} reveal`} style={{ animationDelay: '140ms' }}
+            aria-label="ก้าวสัปดาห์นี้">
+            <div className="metric-top">
+              <span>ก้าวสัปดาห์นี้</span>
+              {active === 'steps' && <span className="pill">อัปเดตล่าสุด</span>}
+            </div>
+            <div className="metric-mid">{fmtSteps(weekSteps)}<small>ก้าว</small></div>
+          </section>
+          <section className="card reveal" style={{ animationDelay: '200ms' }}>
+            <h2>รายวัน (กม.)</h2>
             <WeekBars perDay={perDay} todayIdx={todayIdx} />
-          </div>
-          {runs && runs.length === 0 && (
-            <p className="muted">ยังไม่มีการวิ่ง <Link to="/runs">บันทึกการวิ่งครั้งแรก</Link></p>
-          )}
-        </section>
+            {runs && runs.length === 0 && (
+              <p className="muted">ยังไม่มีรายการ <Link to="/runs">บันทึกครั้งแรก</Link></p>
+            )}
+          </section>
+        </div>
 
         <section className="goal reveal" style={{ animationDelay: '160ms' }} aria-label="เป้าหมายแรก">
           <svg width="44" height="48" viewBox="0 0 40 44" aria-hidden="true">
-            <polygon points="20,2 37,11 37,33 20,42 3,33 3,11" fill="#0B0B0B" stroke="var(--accent)" strokeWidth="2.5" />
+            <polygon points="20,2 37,11 37,33 20,42 3,33 3,11" fill="#111" stroke="var(--accent)" strokeWidth="2.5" />
             <text x="20" y="27" textAnchor="middle" fontSize="13" fontWeight="700" fill="#fff">5K</text>
           </svg>
           <div className="goal-text">

@@ -8,6 +8,8 @@ export type Run = {
   distance_km: number;
   duration_min: number | null;
   elevation_m: number | null;
+  steps: number | null;
+  entry_type: 'km' | 'steps';
   note: string | null;
 };
 
@@ -16,6 +18,8 @@ export type NewRun = {
   distance_km: number;
   duration_min: number | null;
   elevation_m: number | null;
+  steps: number | null;
+  entry_type: 'km' | 'steps';
   note: string | null;
 };
 
@@ -56,7 +60,7 @@ export async function updateAvatarUrl(userId: string, avatarUrl: string): Promis
 export async function listRuns(limit = 500): Promise<Run[]> {
   const res = await supabase
     .from('runs')
-    .select('id, ran_on, distance_km, duration_min, elevation_m, note')
+    .select('id, ran_on, distance_km, duration_min, elevation_m, steps, entry_type, note')
     .order('ran_on', { ascending: false })
     .order('created_at', { ascending: false })
     .limit(limit);

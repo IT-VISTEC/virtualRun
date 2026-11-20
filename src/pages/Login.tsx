@@ -5,14 +5,17 @@ import { isConfigured } from '../lib/supabase';
 import { MicrosoftLogo, RunnerIcon } from '../components/Icons';
 
 type Tone = 'ink' | 'light' | 'mid' | 'accent';
-type Tile = { w: number; round?: boolean; tone: Tone; twin?: boolean };
+// photo: zoom = ความสูงรูปเป็น % ของช่อง, x/y = จุดโฟกัสของรูป (%)
+type Photo = { zoom: number; x: number; y: number };
+type Tile = { w: number; round?: boolean; tone: Tone; photo?: Photo };
+const WALL = `${import.meta.env.BASE_URL}loginwall.webp`;
 type Row = { ml: number; tiles: Tile[] };
 
-// ภาพตัดปะรูปทรงโผล่ขอบจอ — เปลี่ยนแต่ละช่องเป็นรูปนักวิ่งจริงได้ภายหลัง
+// ภาพตัดปะ: ช่องที่มี photo ครอปมาจากรูปเดียว (public/loginwall.webp) ช่องอื่นเป็นไอคอน
 const ROWS: Row[] = [
-  { ml: -44, tiles: [{ w: 170, tone: 'ink' }, { w: 100, round: true, tone: 'light' }, { w: 100, round: true, tone: 'accent' }, { w: 110, tone: 'mid' }] },
-  { ml: -62, tiles: [{ w: 100, round: true, tone: 'mid' }, { w: 270, round: true, tone: 'ink', twin: true }, { w: 120, tone: 'light' }] },
-  { ml: -22, tiles: [{ w: 100, round: true, tone: 'ink' }, { w: 112, tone: 'light' }, { w: 190, tone: 'mid' }] },
+  { ml: -44, tiles: [{ w: 170, tone: 'ink' }, { w: 100, round: true, tone: 'light' }, { w: 100, round: true, tone: 'accent' }, { w: 110, tone: 'mid', photo: { zoom: 450, x: 98, y: 62 } }] },
+  { ml: -62, tiles: [{ w: 100, round: true, tone: 'mid' }, { w: 270, round: true, tone: 'ink', photo: { zoom: 467, x: 86, y: 56 } }, { w: 120, tone: 'light' }] },
+  { ml: -22, tiles: [{ w: 100, round: true, tone: 'ink' }, { w: 112, tone: 'light', photo: { zoom: 600, x: 58, y: 57 } }, { w: 190, tone: 'mid', photo: { zoom: 300, x: 29, y: 43 } }] },
 ];
 
 export default function Login() {
@@ -41,11 +44,18 @@ export default function Login() {
             {row.tiles.map((t, i) => (
               <div
                 key={i}
-                className={`tile tone-${t.tone}${t.round ? ' round' : ''}`}
-                style={{ width: t.w, animationDelay: `${70 * n++}ms` }}
+                className={`tile tone-${t.tone}${t.round ? ' round' : ''}${t.photo ? ' photo' : ''}`}
+                style={{
+                  width: t.w,
+                  animationDelay: `${70 * n++}ms`,
+                  ...(t.photo && {
+                    backgroundImage: `url(${WALL})`,
+                    backgroundSize: `auto ${t.photo.zoom}%`,
+                    backgroundPosition: `${t.photo.x}% ${t.photo.y}%`,
+                  }),
+                }}
               >
-                <RunnerIcon size={44} />
-                {t.twin && <RunnerIcon size={44} style={{ color: 'var(--accent)' }} />}
+                {!t.photo && <RunnerIcon size={44} />}
               </div>
             ))}
           </div>

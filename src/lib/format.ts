@@ -2,6 +2,14 @@ export function fmtKm(n: number): string {
   return n.toLocaleString('th-TH', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
 }
 
+/** 1 ก้าว ≈ 0.75 ม. */
+export const KM_PER_STEP = 0.00075;
+export const stepsToKm = (steps: number): number => Math.round(steps * KM_PER_STEP * 100) / 100;
+export const kmToSteps = (km: number): number => Math.round(km / KM_PER_STEP);
+export function fmtSteps(n: number): string {
+  return Math.round(n).toLocaleString('th-TH');
+}
+
 /** เพซเป็น นาที:วินาที ต่อ กม. */
 export function fmtPace(durationMin: number, distanceKm: number): string {
   const perKm = durationMin / distanceKm;
