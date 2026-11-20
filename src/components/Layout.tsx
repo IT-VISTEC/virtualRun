@@ -2,6 +2,8 @@ import { NavLink, Outlet } from 'react-router-dom';
 import { useAuth } from '../auth/AuthProvider';
 import { Icon, RunnerIcon } from './Icons';
 
+const LOGO = `${import.meta.env.BASE_URL}logo.webp`;
+
 const NAV = [
   { to: '/', label: 'หน้าหลัก', icon: <Icon name="home" />, end: true },
   { to: '/challenges', label: 'ชาเลนจ์', icon: <Icon name="award" />, end: false },
@@ -18,8 +20,7 @@ export function Layout() {
     <div className="shell">
       <aside className="sidebar">
         <div className="brand">
-          <RunnerIcon size={30} />
-          <span>Virtual Run</span>
+          <img src={LOGO} alt="VISTEC Virtual Run" />
         </div>
         <nav className="nav" aria-label="เมนูหลัก">
           {NAV.map((n) => (

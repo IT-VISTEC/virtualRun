@@ -60,7 +60,7 @@ button:disabled { opacity: .55; cursor: not-allowed; }
 @keyframes rise { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: translateY(0); } }
 .reveal { animation: rise .6s cubic-bezier(.2,.8,.3,1) both; }
 @media (prefers-reduced-motion: reduce) {
-  .reveal, .hero img, .login-copy, .login-actions { animation: none !important; }
+  .reveal, .hero img, .login-logo, .login-copy, .login-actions { animation: none !important; }
   * { transition: none !important; }
 }
 
@@ -73,6 +73,8 @@ button:disabled { opacity: .55; cursor: not-allowed; }
 .hero-blur { position: absolute; inset: 0; backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
   mask-image: linear-gradient(90deg, transparent 70%, #000 98%); -webkit-mask-image: linear-gradient(90deg, transparent 70%, #000 98%); }
 .hero-fade { position: absolute; inset: 0; background: linear-gradient(90deg, rgba(14,14,14,0) 64%, rgba(14,14,14,.6) 86%, var(--bg) 100%), linear-gradient(180deg, rgba(14,14,14,.25), transparent 30%); }
+.login-logo { width: 190px; height: auto; align-self: flex-start; animation: rise .7s cubic-bezier(.2,.8,.3,1) .4s both; }
+.hero-logo { display: none; }
 .login-body { display: flex; flex-direction: column; justify-content: center; gap: 36px; padding: 48px clamp(24px, 6vw, 88px); max-width: 640px; }
 .login-copy { animation: rise .7s cubic-bezier(.2,.8,.3,1) .6s both; }
 .login-copy h1 { font-size: clamp(36px, 4.4vw, 54px); line-height: 1.2; letter-spacing: -.5px; }
@@ -84,7 +86,8 @@ button:disabled { opacity: .55; cursor: not-allowed; }
 /* ───────── โครงแอป: sidebar บนจอใหญ่ / tab bar ลอยบนมือถือ ───────── */
 .shell { display: grid; grid-template-columns: 248px minmax(0, 1fr); min-height: 100dvh; }
 .sidebar { position: sticky; top: 0; height: 100dvh; background: #000; color: #fff; padding: 28px 18px; display: flex; flex-direction: column; gap: 28px; }
-.brand { display: flex; align-items: center; gap: 12px; font-weight: 700; font-size: 20px; padding: 0 8px; }
+.brand { display: flex; align-items: center; padding: 0 8px; }
+.brand img { width: 150px; height: auto; display: block; }
 .nav { display: flex; flex-direction: column; gap: 6px; }
 .nav a { display: flex; align-items: center; gap: 12px; min-height: 48px; padding: 0 16px; border-radius: 999px; color: #fff; text-decoration: none; font-weight: 500; }
 .nav a:hover { background: #1f1f1f; }
@@ -199,6 +202,8 @@ textarea { resize: vertical; }
   .hero-blur { mask-image: linear-gradient(180deg, transparent 45%, #000 88%); -webkit-mask-image: linear-gradient(180deg, transparent 45%, #000 88%); }
   .hero-fade { background: linear-gradient(180deg, rgba(14,14,14,.35), transparent 22%, transparent 45%, rgba(14,14,14,.6) 75%, var(--bg) 100%); }
   .login-body { position: relative; z-index: 1; margin-top: -96px; }
+  .login-logo { display: none; }
+  .hero img.hero-logo { display: block; position: absolute; z-index: 2; inset: auto; left: 24px; top: calc(20px + env(safe-area-inset-top)); width: 136px; height: auto; object-fit: contain; animation: none; filter: drop-shadow(0 1px 8px rgba(0,0,0,.45)); }
   .login-body { max-width: none; padding: 28px 24px calc(28px + env(safe-area-inset-bottom)); justify-content: space-between; }
   .shell { display: block; }
   .sidebar { display: none; }

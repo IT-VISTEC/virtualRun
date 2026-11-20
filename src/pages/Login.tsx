@@ -4,6 +4,7 @@ import { useAuth } from '../auth/AuthProvider';
 import { isConfigured } from '../lib/supabase';
 import { MicrosoftLogo } from '../components/Icons';
 
+export const LOGO = `${import.meta.env.BASE_URL}logo.webp`;
 const WALL = `${import.meta.env.BASE_URL}hero.webp`;
 
 export default function Login() {
@@ -29,9 +30,11 @@ export default function Login() {
         <img src={WALL} alt="" />
         <div className="hero-blur" />
         <div className="hero-fade" />
+        <img className="hero-logo" src={LOGO} alt="" />
       </div>
 
       <div className="login-body">
+        <img className="login-logo" src={LOGO} alt="VISTEC Virtual Run" />
         <div className="login-copy">
           <h1>ลงสนามวิ่ง<br />กับเพื่อนทั่วโลก</h1>
           <p>ลงทะเบียนงานวิ่งเสมือนจริง บันทึกระยะทางของคุณ และไม่ต้องวิ่งคนเดียวอีกต่อไป</p>
