@@ -4,7 +4,7 @@ import { useAuth } from '../auth/AuthProvider';
 import { isConfigured } from '../lib/supabase';
 import { MicrosoftLogo } from '../components/Icons';
 
-const WALL = `${import.meta.env.BASE_URL}vitrun.webp`;
+const WALL = `${import.meta.env.BASE_URL}hero.webp`;
 
 export default function Login() {
   const { loading, session, signInWithMicrosoft } = useAuth();
