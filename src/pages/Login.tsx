@@ -7,16 +7,13 @@ import { MicrosoftLogo } from '../components/Icons';
 const LOGO = `${import.meta.env.BASE_URL}logo.webp`;
 const WALL = `${import.meta.env.BASE_URL}hero.webp`;
 
-const INTRO_KEY = 'vr-intro-seen';
+// รีเซ็ตทุกครั้งที่โหลด/รีเฟรชหน้า (ตัวแปรระดับ module) แต่ไม่เล่นซ้ำเมื่อสลับหน้าภายในแอป
+let introPlayed = false;
 
-/** เล่น intro เฉพาะครั้งแรกของแต่ละ session และเมื่อผู้ใช้ไม่ได้ตั้งลดการเคลื่อนไหว */
+/** เล่น intro เมื่อโหลดหน้าใหม่ และผู้ใช้ไม่ได้ตั้งลดการเคลื่อนไหว */
 function shouldPlayIntro(): boolean {
-  try {
-    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return false;
-    return !sessionStorage.getItem(INTRO_KEY);
-  } catch {
-    return false;
-  }
+  if (introPlayed) return false;
+  return !window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 }
 
 export default function Login() {
@@ -29,7 +26,7 @@ export default function Login() {
   // โลโก้เริ่มกลางจอ แล้วเลื่อน/ย่อไปยังตำแหน่งจริง (ตัวที่แสดงอยู่ตามขนาดจอ)
   useLayoutEffect(() => {
     if (!intro) return;
-    try { sessionStorage.setItem(INTRO_KEY, '1'); } catch { /* ไม่เป็นไร */ }
+    introPlayed = true;
     const el = Array.from(rootRef.current?.querySelectorAll<HTMLElement>('.hero-logo, .login-logo') ?? [])
       .find((e) => getComputedStyle(e).display !== 'none');
     if (!el) return;
