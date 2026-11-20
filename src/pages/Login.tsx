@@ -2,21 +2,9 @@ import { useState } from 'react';
 import { Navigate } from 'react-router-dom';
 import { useAuth } from '../auth/AuthProvider';
 import { isConfigured } from '../lib/supabase';
-import { MicrosoftLogo, RunnerIcon } from '../components/Icons';
+import { MicrosoftLogo } from '../components/Icons';
 
-type Tone = 'ink' | 'light' | 'mid' | 'accent';
-// photo: zoom = ความสูงรูปเป็น % ของช่อง, x/y = จุดโฟกัสของรูป (%)
-type Photo = { zoom: number; x: number; y: number };
-type Tile = { w: number; round?: boolean; tone: Tone; photo?: Photo };
-const WALL = `${import.meta.env.BASE_URL}loginwall.webp`;
-type Row = { ml: number; tiles: Tile[] };
-
-// ภาพตัดปะ: ช่องที่มี photo ครอปมาจากรูปเดียว (public/loginwall.webp) ช่องอื่นเป็นไอคอน
-const ROWS: Row[] = [
-  { ml: -44, tiles: [{ w: 170, tone: 'ink' }, { w: 100, round: true, tone: 'light' }, { w: 100, round: true, tone: 'accent' }, { w: 110, tone: 'mid', photo: { zoom: 450, x: 98, y: 62 } }] },
-  { ml: -62, tiles: [{ w: 100, round: true, tone: 'mid' }, { w: 270, round: true, tone: 'ink', photo: { zoom: 467, x: 86, y: 56 } }, { w: 120, tone: 'light' }] },
-  { ml: -22, tiles: [{ w: 100, round: true, tone: 'ink' }, { w: 112, tone: 'light', photo: { zoom: 600, x: 58, y: 57 } }, { w: 190, tone: 'mid', photo: { zoom: 300, x: 29, y: 43 } }] },
-];
+const WALL = `${import.meta.env.BASE_URL}vitrun.webp`;
 
 export default function Login() {
   const { loading, session, signInWithMicrosoft } = useAuth();
@@ -35,31 +23,12 @@ export default function Login() {
     }
   }
 
-  let n = 0;
   return (
     <div className="login">
-      <div className="collage" aria-hidden="true">
-        {ROWS.map((row, r) => (
-          <div key={r} className="collage-row" style={{ marginLeft: row.ml }}>
-            {row.tiles.map((t, i) => (
-              <div
-                key={i}
-                className={`tile tone-${t.tone}${t.round ? ' round' : ''}${t.photo ? ' photo' : ''}`}
-                style={{
-                  width: t.w,
-                  animationDelay: `${70 * n++}ms`,
-                  ...(t.photo && {
-                    backgroundImage: `url(${WALL})`,
-                    backgroundSize: `auto ${t.photo.zoom}%`,
-                    backgroundPosition: `${t.photo.x}% ${t.photo.y}%`,
-                  }),
-                }}
-              >
-                {!t.photo && <RunnerIcon size={44} />}
-              </div>
-            ))}
-          </div>
-        ))}
+      <div className="hero" aria-hidden="true">
+        <img src={WALL} alt="" />
+        <div className="hero-blur" />
+        <div className="hero-fade" />
       </div>
 
       <div className="login-body">
