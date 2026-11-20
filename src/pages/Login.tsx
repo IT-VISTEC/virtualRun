@@ -1,16 +1,56 @@
-import { useState } from 'react';
+import { useLayoutEffect, useRef, useState } from 'react';
 import { Navigate } from 'react-router-dom';
 import { useAuth } from '../auth/AuthProvider';
 import { isConfigured } from '../lib/supabase';
 import { MicrosoftLogo } from '../components/Icons';
 
-export const LOGO = `${import.meta.env.BASE_URL}logo.webp`;
+const LOGO = `${import.meta.env.BASE_URL}logo.webp`;
 const WALL = `${import.meta.env.BASE_URL}hero.webp`;
+
+const INTRO_KEY = 'vr-intro-seen';
+
+/** เล่น intro เฉพาะครั้งแรกของแต่ละ session และเมื่อผู้ใช้ไม่ได้ตั้งลดการเคลื่อนไหว */
+function shouldPlayIntro(): boolean {
+  try {
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return false;
+    return !sessionStorage.getItem(INTRO_KEY);
+  } catch {
+    return false;
+  }
+}
 
 export default function Login() {
   const { loading, session, signInWithMicrosoft } = useAuth();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [intro] = useState(shouldPlayIntro);
+  const rootRef = useRef<HTMLDivElement>(null);
+
+  // โลโก้เริ่มกลางจอ แล้วเลื่อน/ย่อไปยังตำแหน่งจริง (ตัวที่แสดงอยู่ตามขนาดจอ)
+  useLayoutEffect(() => {
+    if (!intro) return;
+    try { sessionStorage.setItem(INTRO_KEY, '1'); } catch { /* ไม่เป็นไร */ }
+    const el = Array.from(rootRef.current?.querySelectorAll<HTMLElement>('.hero-logo, .login-logo') ?? [])
+      .find((e) => getComputedStyle(e).display !== 'none');
+    if (!el) return;
+    const r = el.getBoundingClientRect();
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    const scale = Math.min(vw * 0.7, 320) / r.width;
+    const dx = vw / 2 - (r.left + r.width / 2);
+    const dy = vh / 2 - (r.top + r.height / 2);
+    const from = `translate(${dx}px, ${dy}px) scale(${scale})`;
+    const anim = el.animate(
+      [
+        { transform: from, opacity: 0, offset: 0 },
+        { transform: from, opacity: 1, offset: 0.35 },
+        { transform: from, opacity: 1, offset: 0.5 },
+        { transform: 'none', opacity: 1, offset: 1 },
+      ],
+      { duration: 1300, easing: 'cubic-bezier(.65,0,.25,1)', fill: 'backwards' },
+    );
+    return () => anim.cancel();
+  }, [intro]);
 
   if (!loading && session) return <Navigate to="/" replace />;
 
@@ -25,7 +65,7 @@ export default function Login() {
   }
 
   return (
-    <div className="login">
+    <div className={`login${intro ? ' intro' : ''}`} ref={rootRef}>
       <div className="hero" aria-hidden="true">
         <img src={WALL} alt="" />
         <div className="hero-blur" />
