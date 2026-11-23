@@ -9,8 +9,8 @@ function Podium({ row, tall }: { row?: LeaderRow; tall?: boolean }) {
   return (
     <div className={`podium${tall ? ' first' : ''}`}>
       <div className="podium-avatar"><span>{row.rank}</span></div>
-      <div className="podium-name">{row.display_name || 'นักวิ่ง'}</div>
-      <div className="podium-km">{fmtKm(row.total_km)} กม.</div>
+      <div className="podium-name">{row.display_name || 'Runner'}</div>
+      <div className="podium-km">{fmtKm(row.total_km)} km</div>
     </div>
   );
 }
@@ -73,14 +73,14 @@ export default function Challenges() {
     <div className="page">
       <header className="page-head reveal">
         <div>
-          <h1>ชาเลนจ์</h1>
-          <p className="muted">เข้าร่วมแล้วระยะที่คุณบันทึกในช่วงวันที่ของชาเลนจ์จะถูกนับอัตโนมัติ</p>
+          <h1>Challenges</h1>
+          <p className="muted">Join a challenge and your logged runs during its date range will count automatically.</p>
         </div>
       </header>
 
-      {error && <p className="alert" role="alert">เกิดข้อผิดพลาด: {error}</p>}
+      {error && <p className="alert" role="alert">Error: {error}</p>}
       {list && list.length === 0 && (
-        <p className="muted">ยังไม่มีชาเลนจ์ในระบบ — เพิ่มได้ที่ Supabase Dashboard (ดู <code>supabase/seed.sql</code>)</p>
+        <p className="muted">No challenges yet — add one in Supabase Dashboard (see <code>supabase/seed.sql</code>).</p>
       )}
 
       <div className="challenges-layout">
@@ -90,15 +90,15 @@ export default function Challenges() {
               style={{ animationDelay: `${60 + i * 60}ms` }}>
               <h2>{c.title}</h2>
               <p className="muted small">{formatShort(c.starts_on)} – {formatShort(c.ends_on)}
-                {c.target_km != null && <> · เป้าหมาย {fmtKm(c.target_km)} กม.</>}</p>
+                {c.target_km != null && <> · Target {fmtKm(c.target_km)} km</>}</p>
               {c.description && <p>{c.description}</p>}
-              <p className="muted small">{c.member_count.toLocaleString('th-TH')} คนเข้าร่วม</p>
+              <p className="muted small">{c.member_count.toLocaleString('en-US')} joined</p>
               <div className="row-actions">
                 <button className={c.joined ? 'btn-ghost' : 'btn-accent'} onClick={() => toggle(c)} disabled={busyId === c.id}>
-                  {c.joined ? 'ออกจากชาเลนจ์' : 'ร่วมชาเลนจ์'}
+                  {c.joined ? 'Leave' : 'Join Challenge'}
                 </button>
                 <button className="btn-ghost" onClick={() => setSelected(c.id)} aria-pressed={c.id === selected}>
-                  ดูอันดับ
+                  Leaderboard
                 </button>
               </div>
             </article>
@@ -106,10 +106,10 @@ export default function Challenges() {
         </div>
 
         <section className="card board reveal" style={{ animationDelay: '120ms' }} aria-live="polite">
-          <h2>อันดับ{current ? ` · ${current.title}` : ''}</h2>
-          {!current && <p className="muted">เลือกชาเลนจ์เพื่อดูอันดับ</p>}
-          {current && board === null && <p className="muted">กำลังโหลด…</p>}
-          {current && board && board.length === 0 && <p className="muted">ยังไม่มีผู้เข้าร่วม — เป็นคนแรกที่ร่วมชาเลนจ์นี้</p>}
+          <h2>Leaderboard{current ? ` · ${current.title}` : ''}</h2>
+          {!current && <p className="muted">Select a challenge to view the leaderboard.</p>}
+          {current && board === null && <p className="muted">Loading…</p>}
+          {current && board && board.length === 0 && <p className="muted">No participants yet — be the first to join!</p>}
           {board && board.length > 0 && (
             <>
               <div className="podium-row">
@@ -122,8 +122,8 @@ export default function Challenges() {
                   <li key={r.user_id} className={r.user_id === user?.id ? 'me' : ''}>
                     <span className="rank-no">{r.rank}</span>
                     <span className="rank-avatar" aria-hidden="true" />
-                    <span className="rank-name">{r.display_name || 'นักวิ่ง'}{r.user_id === user?.id && ' (คุณ)'}</span>
-                    <strong>{fmtKm(r.total_km)} กม.</strong>
+                    <span className="rank-name">{r.display_name || 'Runner'}{r.user_id === user?.id && ' (You)'}</span>
+                    <strong>{fmtKm(r.total_km)} km</strong>
                   </li>
                 ))}
               </ol>

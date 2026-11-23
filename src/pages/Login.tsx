@@ -56,7 +56,7 @@ export default function Login() {
     setBusy(true);
     const err = await signInWithMicrosoft();
     if (err) {
-      setError(`เข้าสู่ระบบไม่สำเร็จ: ${err}`);
+      setError(`Sign in failed: ${err}`);
       setBusy(false);
     }
   }
@@ -73,26 +73,23 @@ export default function Login() {
       <div className="login-body">
         <img className="login-logo" src={LOGO} alt="VISTEC Virtual Run" />
         <div className="login-copy">
-          <h1>ลงสนามวิ่ง<br />กับเพื่อนทั่วโลก</h1>
-          <p>ลงทะเบียนงานวิ่งเสมือนจริง บันทึกระยะทางของคุณ และไม่ต้องวิ่งคนเดียวอีกต่อไป</p>
+          <h1>Virtual Run Event</h1>
+          <p>A short-term running event for VISTEC students and staff. Log your distance and climb the leaderboard together.</p>
         </div>
 
         <div className="login-actions">
           {!isConfigured && (
             <p className="alert" role="alert">
-              ยังไม่ได้ตั้งค่า Supabase — สร้างไฟล์ <code>.env.local</code> ตาม README
+              Supabase is not configured — create <code>.env.local</code> per README.
             </p>
           )}
           <button className="btn-ms" onClick={onSignIn} disabled={busy || !isConfigured}>
             <MicrosoftLogo />
-            {busy ? 'กำลังพาไปหน้า Microsoft…' : 'เข้าสู่ระบบด้วย Microsoft'}
+            {busy ? 'Redirecting to Microsoft…' : 'Sign in with Microsoft'}
           </button>
           {error && <p className="alert" role="alert">{error}</p>}
-          <p className="small">
-            ยังไม่มีบัญชี Microsoft?{' '}
-            <a href="https://account.microsoft.com" target="_blank" rel="noreferrer">สร้างบัญชีใหม่</a>
-          </p>
-          <p className="legal">การเข้าสู่ระบบถือว่าคุณยอมรับเงื่อนไขการใช้งานและนโยบายความเป็นส่วนตัว</p>
+          <p className="small">Sign in with your VISTEC Microsoft 365 account only</p>
+          <p className="legal">By signing in, you agree to the event rules and privacy policy.</p>
         </div>
       </div>
     </div>

@@ -4,7 +4,7 @@ import { Layout } from './Layout';
 
 export function Protected() {
   const { loading, session } = useAuth();
-  if (loading) return <div className="center-screen" role="status">กำลังโหลด…</div>;
+  if (loading) return <div className="center-screen" role="status">Loading…</div>;
   if (!session) return <Navigate to="/login" replace />;
   return <Layout />;
 }

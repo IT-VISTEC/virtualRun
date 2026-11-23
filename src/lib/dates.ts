@@ -18,9 +18,9 @@ export function parseISODate(s: string): Date {
 }
 
 export function formatShort(s: string): string {
-  return parseISODate(s).toLocaleDateString('th-TH', { day: 'numeric', month: 'short' });
+  return parseISODate(s).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
 }
 
 export function formatLong(s: string): string {
-  return parseISODate(s).toLocaleDateString('th-TH', { day: 'numeric', month: 'long', year: 'numeric' });
+  return parseISODate(s).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
 }
