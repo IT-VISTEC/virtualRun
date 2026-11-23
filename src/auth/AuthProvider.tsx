@@ -1,15 +1,22 @@
 import { ReactNode, createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import type { Session, User } from '@supabase/supabase-js';
 import { supabase } from '../lib/supabase';
-import { Profile, getProfile } from '../lib/api';
+import { Profile, getProfile, isAdmin as fetchIsAdmin } from '../lib/api';
 
-type AuthValue = {
+export type { Profile };
+
+export type AuthValue = {
+  /** true until the initial session check finishes */
   loading: boolean;
   session: Session | null;
   user: User | null;
   profile: Profile | null;
+  /** true while the signed-in user's profile/admin flag are being fetched for the first time */
+  profileLoading: boolean;
+  isAdmin: boolean;
   signInWithMicrosoft: () => Promise<string | null>;
   signOut: () => Promise<void>;
+  /** Re-fetch profile (and admin flag). Call after registration, group or avatar changes. */
   refreshProfile: () => Promise<void>;
 };
 
@@ -19,6 +26,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
   const [session, setSession] = useState<Session | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
+  const [admin, setAdmin] = useState(false);
+  // Which user id the current profile/admin state belongs to (undefined = not loaded yet).
+  const [loadedFor, setLoadedFor] = useState<string | null | undefined>(undefined);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
@@ -29,24 +39,34 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => data.subscription.unsubscribe();
   }, []);
 
-  const userId = session?.user.id;
+  const userId = session?.user.id ?? null;
 
   const refreshProfile = useCallback(async () => {
-    if (!userId) return setProfile(null);
+    if (!userId) {
+      setProfile(null);
+      setAdmin(false);
+      setLoadedFor(null);
+      return;
+    }
     try {
-      let p = await getProfile(userId);
+      const [p0, a] = await Promise.all([getProfile(userId), fetchIsAdmin().catch(() => false)]);
+      let p = p0;
       if (!p) {
-        // ผู้ใช้เก่าที่ยังไม่มีแถวโปรไฟล์ → สร้างให้จากชื่อ Microsoft 365
+        // Older users without a profile row: create one from the Microsoft 365 name.
         const meta = session?.user.user_metadata ?? {};
         const name = (meta.full_name as string) || (meta.name as string) || session?.user.email?.split('@')[0] || '';
         const { error } = await supabase.from('profiles').insert({ id: userId, display_name: name });
-        if (error) console.error('สร้างโปรไฟล์ไม่สำเร็จ:', error.message);
+        if (error) console.error('Could not create profile:', error.message);
         p = await getProfile(userId);
       }
       setProfile(p);
+      setAdmin(a);
     } catch (err) {
-      console.error('โหลดโปรไฟล์ไม่สำเร็จ:', err);
+      console.error('Could not load profile:', err);
       setProfile(null);
+      setAdmin(false);
+    } finally {
+      setLoadedFor(userId);
     }
   }, [userId]);
 
@@ -58,27 +78,39 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const { error } = await supabase.auth.signInWithOAuth({
       provider: 'azure',
       options: {
-        scopes: 'email', // Supabase ต้องการ email จาก Azure
+        scopes: 'email', // Supabase needs the email claim from Azure
         redirectTo: window.location.origin + import.meta.env.BASE_URL,
-        queryParams: { prompt: 'select_account' }, // ให้เลือกบัญชีหรือกรอกเมลใหม่ได้ทุกครั้งที่กดล็อกอิน
+        queryParams: { prompt: 'select_account' },
       },
     });
-    return error ? error.message : null; // สำเร็จ = เบราว์เซอร์ถูกพาไปหน้า Microsoft
+    return error ? error.message : null; // success = browser is redirected to Microsoft
   }, []);
 
   const signOut = useCallback(async () => {
     await supabase.auth.signOut();
   }, []);
 
+  const profileLoading = !!userId && loadedFor !== userId;
+
   const value = useMemo<AuthValue>(
-    () => ({ loading, session, user: session?.user ?? null, profile, signInWithMicrosoft, signOut, refreshProfile }),
-    [loading, session, profile, signInWithMicrosoft, signOut, refreshProfile],
+    () => ({
+      loading,
+      session,
+      user: session?.user ?? null,
+      profile: profileLoading ? null : profile,
+      profileLoading,
+      isAdmin: profileLoading ? false : admin,
+      signInWithMicrosoft,
+      signOut,
+      refreshProfile,
+    }),
+    [loading, session, profile, profileLoading, admin, signInWithMicrosoft, signOut, refreshProfile],
   );
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 
 export function useAuth() {
   const ctx = useContext(AuthContext);
-  if (!ctx) throw new Error('useAuth ต้องใช้ภายใน AuthProvider');
+  if (!ctx) throw new Error('useAuth must be used inside AuthProvider');
   return ctx;
 }

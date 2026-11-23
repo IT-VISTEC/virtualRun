@@ -5,6 +5,12 @@ export const MAX_INPUT_BYTES = 15 * 1024 * 1024;
 export const MAX_OUTPUT_BYTES = 5 * 1024 * 1024; // ต้องตรงกับ file_size_limit ของ bucket
 const MAX_SIDE = 1600;
 
+/** Lowercase hex SHA-256 of the file's bytes (use the ORIGINAL file, before toPng). */
+export async function sha256Hex(file: Blob): Promise<string> {
+  const digest = await crypto.subtle.digest('SHA-256', await file.arrayBuffer());
+  return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, '0')).join('');
+}
+
 function canvasToPng(canvas: HTMLCanvasElement): Promise<Blob> {
   return new Promise((resolve, reject) =>
     canvas.toBlob((b) => (b ? resolve(b) : reject(new Error('Could not convert the image.'))), 'image/png'),

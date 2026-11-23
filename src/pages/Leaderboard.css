@@ -1,0 +1,62 @@
+/* Leaderboard — a plain ranked list. Type and spacing carry the hierarchy, not decoration. */
+.lb-page { max-width: 720px; }
+
+/* Tabs: text + underline, left aligned */
+.lb-tabs { display: flex; gap: 28px; border-bottom: 1px solid var(--line); }
+.lb-tabs button { position: relative; background: none; border: 0; padding: 10px 0 12px; min-height: 44px; color: var(--muted); font-weight: 600; font-size: 16px; cursor: pointer; }
+.lb-tabs button:hover { color: var(--ink); }
+.lb-tabs button.on { color: var(--ink); }
+.lb-tabs button.on::after { content: ''; position: absolute; left: 0; right: 0; bottom: -1px; height: 2px; background: var(--ink); }
+
+.lb-note { display: flex; align-items: center; gap: 8px; margin: 0; color: var(--muted); font-size: 13px; }
+.lb-note.admin { color: var(--ink); }
+.lb-panel { display: flex; flex-direction: column; gap: 10px; }
+
+/* Your standing: one quiet line above the list */
+.lb-standing { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; font-size: 15px; color: var(--muted); padding: 2px 0 6px; }
+.lb-standing strong { color: var(--ink); font-size: 17px; }
+.lb-standing .btn-link { min-height: 0; padding: 0; font-size: 14px; }
+
+/* List */
+.lb-list { list-style: none; margin: 0; padding: 0; }
+.lb-list li { display: grid; grid-template-columns: 44px 40px minmax(0, 1fr) auto; align-items: center; gap: 14px; min-height: 64px; padding: 8px 12px 8px 4px; border-bottom: 1px solid var(--line); }
+.lb-list li:last-child { border-bottom: 0; }
+.lb-list li.is-me { background: #1d1d1b; border-radius: 12px; border-bottom-color: transparent; }
+
+.lb-rank { font-variant-numeric: tabular-nums; font-weight: 600; font-size: 16px; color: var(--muted); text-align: right; padding-right: 4px; }
+.lb-list li.is-top .lb-rank { color: var(--ink); font-size: 22px; font-weight: 700; }
+.lb-list li.is-me .lb-rank { color: var(--accent); }
+
+.lb-avatar { width: 40px; height: 40px; border-radius: 50%; object-fit: cover; background: var(--tile-light); display: block; }
+.lb-who { display: flex; flex-direction: column; min-width: 0; }
+.lb-name { font-weight: 600; font-size: 16px; line-height: 1.3; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lb-sub { display: flex; gap: 8px; font-size: 13px; color: var(--muted); line-height: 1.4; }
+.lb-sub > * + *::before { content: '·'; margin-right: 8px; }
+.lb-me { color: var(--ink); font-weight: 600; }
+.lb-members { display: inline; }
+
+.lb-km { font-variant-numeric: tabular-nums; font-weight: 700; font-size: 16px; white-space: nowrap; }
+.lb-km small { font-weight: 500; color: var(--muted); font-size: 13px; }
+
+/* Teams: code as a monogram, optional share bar when distances are revealed */
+.lb-team-code { width: 40px; height: 40px; border-radius: 50%; display: grid; place-items: center; background: var(--tile-light); font-size: 11px; font-weight: 700; letter-spacing: .3px; }
+.lb-team-bar { display: block; height: 4px; margin-top: 6px; background: var(--line); border-radius: 2px; overflow: hidden; }
+.lb-team-bar span { display: block; height: 100%; background: var(--muted); }
+.lb-list li.is-me .lb-team-bar span { background: var(--accent); }
+
+/* States */
+.lb-empty { padding: 28px 4px; color: var(--muted); display: flex; flex-direction: column; gap: 12px; align-items: flex-start; }
+.lb-empty.soft { padding: 4px 4px 10px; font-size: 14px; }
+.lb-error { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
+.lb-skel-row { display: grid; grid-template-columns: 44px 40px 1fr; gap: 14px; align-items: center; min-height: 64px; border-bottom: 1px solid var(--line); }
+.lb-skel-row span { height: 14px; border-radius: 7px; background: var(--tile-mid); }
+.lb-skel-row span:nth-child(2) { width: 40px; height: 40px; border-radius: 50%; }
+.lb-skel-row span:nth-child(3) { width: 50%; }
+
+.lb-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+@media (max-width: 600px) {
+  .lb-tabs { gap: 22px; }
+  .lb-list li { grid-template-columns: 34px 36px minmax(0, 1fr) auto; gap: 12px; }
+  .lb-avatar, .lb-team-code { width: 36px; height: 36px; }
+}

@@ -103,7 +103,11 @@ button:disabled { opacity: .55; cursor: not-allowed; }
 .nav a:hover { background: #1f1f1f; }
 .nav a.active { background: #1f1f1d; color: #fff; }
 .nav a.active svg { color: var(--accent); }
-.sidebar-user { margin-top: auto; padding: 0 8px; color: var(--on-dark-muted); font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sidebar-user { margin-top: auto; padding: 8px; border-radius: 10px; display: flex; align-items: center; gap: 10px; min-width: 0; color: var(--on-dark-muted); font-size: 14px; text-decoration: none; }
+.sidebar-user:hover { background: #1f1f1f; }
+.sidebar-user img { width: 32px; height: 32px; border-radius: 50%; object-fit: cover; flex-shrink: 0; background: var(--tile-light); }
+.sidebar-user-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.team-tag { flex-shrink: 0; border: 1px solid #3a3a37; border-radius: 4px; padding: 0 6px; font-size: 11px; font-weight: 700; letter-spacing: .5px; color: var(--ink); }
 .main { padding: 40px clamp(24px, 4vw, 56px) 64px; }
 .page { max-width: 1120px; margin: 0 auto; display: flex; flex-direction: column; gap: 22px; }
 .page.narrow { max-width: 560px; }
@@ -278,8 +282,14 @@ textarea { resize: vertical; }
   .tabbar {
     display: flex; position: fixed; z-index: 20; left: 50%; transform: translateX(-50%);
     bottom: calc(16px + env(safe-area-inset-bottom)); width: min(calc(100% - 32px), 480px); height: 64px;
-    background: #000; border: 1px solid var(--line); border-radius: 32px; padding: 0 10px; justify-content: space-between; align-items: center;
+    background: #000; border: 1px solid var(--line); border-radius: 32px; padding: 0 10px; justify-content: space-around; align-items: center;
   }
   .tabbar a { width: 48px; height: 48px; border-radius: 50%; display: grid; place-items: center; color: #fff; }
   .tabbar a.active { background: #262624; color: var(--accent); }
+  /* Raised round "+" in the centre of the bar -> /log */
+  .tabbar a.tab-plus { width: 62px; height: 62px; margin-top: -30px; background: var(--accent); color: var(--on-accent);
+    border: 5px solid var(--bg); box-shadow: 0 8px 22px rgba(242,106,33,.35); transition: transform .15s ease; }
+  .tabbar a.tab-plus:hover { transform: translateY(-1px); }
+  .tabbar a.tab-plus:active { transform: scale(.96); }
+  .tabbar a.tab-plus.active { background: var(--accent); color: var(--on-accent); }
 }
