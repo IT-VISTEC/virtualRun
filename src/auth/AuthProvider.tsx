@@ -15,6 +15,10 @@ export type AuthValue = {
   profileLoading: boolean;
   isAdmin: boolean;
   signInWithMicrosoft: () => Promise<string | null>;
+  /** Email + 6-digit PIN (Supabase password). Returns an error message or null. */
+  signInWithPin: (email: string, pin: string) => Promise<string | null>;
+  /** Set or change the signed-in user's 6-digit PIN. Returns an error message or null. */
+  setPin: (pin: string) => Promise<string | null>;
   signOut: () => Promise<void>;
   /** Re-fetch profile (and admin flag). Call after registration, group or avatar changes. */
   refreshProfile: () => Promise<void>;
@@ -86,6 +90,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return error ? error.message : null; // success = browser is redirected to Microsoft
   }, []);
 
+  const signInWithPin = useCallback(async (email: string, pin: string) => {
+    const { error } = await supabase.auth.signInWithPassword({ email: email.trim().toLowerCase(), password: pin });
+    if (!error) return null;
+    if (/invalid login credentials/i.test(error.message))
+      return 'Email or PIN is incorrect. PIN sign-in only works after you set a PIN in your Profile.';
+    return error.message;
+  }, []);
+
+  const setPin = useCallback(async (pin: string) => {
+    if (!/^\d{6}$/.test(pin)) return 'PIN must be exactly 6 digits.';
+    const { error } = await supabase.auth.updateUser({ password: pin });
+    if (!error) return null;
+    if (/same.*password|different from the old/i.test(error.message)) return 'That is already your PIN.';
+    if (/reauthenticat|recent/i.test(error.message)) return 'For security, sign out and sign in with Microsoft again, then set your PIN.';
+    return error.message;
+  }, []);
+
   const signOut = useCallback(async () => {
     await supabase.auth.signOut();
   }, []);
@@ -101,10 +122,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       profileLoading,
       isAdmin: profileLoading ? false : admin,
       signInWithMicrosoft,
+      signInWithPin,
+      setPin,
       signOut,
       refreshProfile,
     }),
-    [loading, session, profile, profileLoading, admin, signInWithMicrosoft, signOut, refreshProfile],
+    [loading, session, profile, profileLoading, admin, signInWithMicrosoft, signInWithPin, setPin, signOut, refreshProfile],
   );
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

@@ -7,12 +7,16 @@ import {
   adminListGroups,
   adminListRuns,
   adminListUsers,
+  adminSetPinLogin,
   adminSetReveal,
   adminSetRunStatus,
   adminSetTeam,
   adminSetUserGroup,
   adminVoidDuplicatePair,
   getAppSettings,
+  leaderboardGroups,
+  leaderboardIndividual,
+  leaderboardTeams,
   listAuditLog,
   signedUrls,
   type AdminRun,
@@ -25,6 +29,7 @@ import {
 import { REVIEW_DISTANCE_KM, REVIEW_PACE_SEC, fmtHms, fmtPaceSec, fmtSteps, kmToSteps } from '../lib/format';
 import { formatShort } from '../lib/dates';
 import { Icon } from '../components/Icons';
+import { downloadCsv, toCsv } from '../lib/csv';
 import './Admin.css';
 
 // ───────── helpers ─────────
@@ -48,7 +53,8 @@ type Dialog =
   | { kind: 'photo'; run: AdminRun }
   | { kind: 'team'; user: AdminUser; team: Team }
   | { kind: 'group'; user: AdminUser; groupId: string | null }
-  | { kind: 'reveal'; value: boolean };
+  | { kind: 'reveal'; value: boolean }
+  | { kind: 'pin'; value: boolean };
 
 const GROUP_MAX = 4;
 const URL_TTL_MS = 50 * 60 * 1000; // signed URLs live 1 h; refresh a bit earlier
@@ -63,6 +69,8 @@ const fmtLongDateTime = (iso: string) =>
   new Date(iso).toLocaleString('en-GB', {
     timeZone: 'Asia/Bangkok', day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false,
   });
+const fmtDay = (iso: string) =>
+  new Date(`${iso}T00:00:00Z`).toLocaleDateString('en-GB', { timeZone: 'UTC', day: 'numeric', month: 'short' });
 const shortId = (id: string) => id.replace(/^[a-z]+:/i, '').slice(0, 8);
 
 const isDuplicate = (r: AdminRun) => r.flags.includes('duplicate_image');
@@ -75,7 +83,14 @@ function reasons(r: AdminRun): { text: string; tone: 'warn' | 'bad' }[] {
   if (r.distance_km > REVIEW_DISTANCE_KM) out.push({ text: `Over ${REVIEW_DISTANCE_KM} km`, tone: 'warn' });
   if (r.pace_sec_per_km != null && r.pace_sec_per_km < REVIEW_PACE_SEC)
     out.push({ text: `Pace under ${fmtPaceSec(REVIEW_PACE_SEC)} /km`, tone: 'warn' });
-  for (const f of r.flags) out.push({ text: f === 'duplicate_image' ? 'Duplicate photo' : f.replace(/_/g, ' '), tone: 'bad' });
+  for (const f of r.flags) {
+    const text =
+      f === 'duplicate_image' ? 'Duplicate photo'
+      : f === 'date_mismatch' ? `Photo dated ${r.photo_date ? fmtDay(r.photo_date) : 'another day'}`
+      : f === 'no_date' ? 'No date on photo'
+      : f.replace(/_/g, ' ');
+    out.push({ text, tone: 'bad' });
+  }
   return out;
 }
 
@@ -93,6 +108,11 @@ export default function Admin() {
   const tabParam = params.get('tab');
   const tab: Tab = TABS.some((t) => t.id === tabParam) ? (tabParam as Tab) : 'review';
   const setTab = (t: Tab) => setParams(t === 'review' ? {} : { tab: t }, { replace: true });
+  const personParam = params.get('person') ?? '';
+  const openRunsFor = (userId: string) => {
+    setParams({ tab: 'runs', person: userId }, { replace: true });
+    window.scrollTo({ top: 0 });
+  };
 
   const [runs, setRuns] = useState<AdminRun[] | null>(null);
   const [users, setUsers] = useState<AdminUser[] | null>(null);
@@ -122,14 +142,35 @@ export default function Admin() {
     setGroups(g);
   }, []);
   const loadSettings = useCallback(async () => setSettings(await getAppSettings()), []);
+  const AUDIT_PAGE = 100;
+  const [auditMore, setAuditMore] = useState(false);
+  const [auditLoadingMore, setAuditLoadingMore] = useState(false);
   const loadAudit = useCallback(async () => {
     setAuditError('');
     try {
-      setAudit(await listAuditLog(100));
+      const rows = await listAuditLog(AUDIT_PAGE);
+      setAudit(rows);
+      setAuditMore(rows.length === AUDIT_PAGE);
     } catch (e) {
       setAuditError(msg(e));
     }
   }, []);
+  const loadMoreAudit = useCallback(async () => {
+    if (!audit || audit.length === 0) return;
+    setAuditLoadingMore(true);
+    try {
+      const last = audit[audit.length - 1];
+      const rows = await listAuditLog(AUDIT_PAGE, { at: last.at, id: last.id });
+      const seen = new Set(audit.map((e) => e.id));
+      const fresh = rows.filter((e) => !seen.has(e.id));
+      setAudit([...audit, ...fresh]);
+      setAuditMore(rows.length === AUDIT_PAGE);
+    } catch (e) {
+      setToast({ kind: 'error', text: `Couldn’t load more: ${msg(e)}`, id: Date.now() });
+    } finally {
+      setAuditLoadingMore(false);
+    }
+  }, [audit]);
 
   const loadAll = useCallback(async () => {
     setLoadError('');
@@ -241,6 +282,63 @@ export default function Admin() {
 
   const loading = runs === null && !loadError;
 
+  const [exporting, setExporting] = useState<string | null>(null);
+  const [exportErr, setExportErr] = useState<string | null>(null);
+  async function exportCsv(kind: 'runs' | 'users' | 'standings') {
+    setExporting(kind);
+    setExportErr(null);
+    const stamp = new Date().toISOString().slice(0, 10);
+    try {
+      if (kind === 'runs') {
+        const rows = await adminListRuns();
+        downloadCsv(`virtual-run-runs-${stamp}.csv`, toCsv(rows, [
+          { header: 'Run ID', value: (r) => r.run_id },
+          { header: 'Date', value: (r) => r.ran_on },
+          { header: 'Name', value: (r) => r.display_name },
+          { header: 'Email', value: (r) => r.email },
+          { header: 'Team', value: (r) => r.team },
+          { header: 'Distance (km)', value: (r) => r.distance_km },
+          { header: 'Moving time', value: (r) => (r.duration_sec != null ? fmtHms(r.duration_sec) : '') },
+          { header: 'Pace (/km)', value: (r) => (r.pace_sec_per_km != null ? fmtPaceSec(r.pace_sec_per_km) : '') },
+          { header: 'Status', value: (r) => r.status },
+          { header: 'Flags', value: (r) => r.flags.join(' ') },
+          { header: 'Review note', value: (r) => r.review_note },
+          { header: 'Submitted at', value: (r) => r.created_at },
+        ]));
+      } else if (kind === 'users') {
+        const rows = await adminListUsers();
+        downloadCsv(`virtual-run-users-${stamp}.csv`, toCsv(rows, [
+          { header: 'Name', value: (u) => u.display_name },
+          { header: 'Email', value: (u) => u.email },
+          { header: 'Team', value: (u) => u.team },
+          { header: 'Group', value: (u) => u.group_name },
+          { header: 'Registered', value: (u) => u.registered_at },
+          { header: 'Counted km', value: (u) => u.counted_km },
+          { header: 'Pending runs', value: (u) => u.pending_count },
+          { header: 'Admin', value: (u) => (u.is_admin ? 'yes' : '') },
+        ]));
+      } else {
+        const [ind, grp, team] = await Promise.all([leaderboardIndividual(), leaderboardGroups(), leaderboardTeams()]);
+        const rows = [
+          ...ind.map((r) => ({ cat: 'Individual', rank: r.rank, name: r.display_name, extra: r.team ?? '', km: r.total_km })),
+          ...grp.map((r) => ({ cat: 'Group', rank: r.rank, name: r.name, extra: `${r.member_count} members`, km: r.total_km })),
+          ...team.map((r) => ({ cat: 'Team', rank: r.rank, name: r.team, extra: `${r.member_count} members`, km: r.total_km })),
+        ];
+        downloadCsv(`virtual-run-standings-${stamp}.csv`, toCsv(rows, [
+          { header: 'Category', value: (r) => r.cat },
+          { header: 'Rank', value: (r) => r.rank },
+          { header: 'Name', value: (r) => r.name },
+          { header: 'Team / members', value: (r) => r.extra },
+          { header: 'Counted km', value: (r) => r.km },
+        ]));
+      }
+    } catch (e) {
+      setExportErr(`Export failed: ${(e as Error).message}`);
+    } finally {
+      setExporting(null);
+    }
+  }
+
   return (
     <div className="page adm">
       <header className="page-head reveal">
@@ -253,6 +351,17 @@ export default function Admin() {
           {reloading ? 'Loading…' : 'Reload'}
         </button>
       </header>
+
+      <div className="adm-export reveal" aria-label="Export CSV">
+        <span className="muted small">Export CSV:</span>
+        {([['standings', 'Standings'], ['runs', 'All runs'], ['users', 'Users']] as const).map(([k, label]) => (
+          <button key={k} type="button" className="btn-ghost" disabled={!!exporting} onClick={() => void exportCsv(k)}>
+            <Icon name="download" size={16} />
+            {exporting === k ? 'Preparing…' : label}
+          </button>
+        ))}
+      </div>
+      {exportErr && <p className="alert" role="alert">{exportErr}</p>}
 
       <div className="adm-tabs reveal" role="tablist" aria-label="Admin sections">
         {TABS.map((t) => (
@@ -315,6 +424,8 @@ export default function Admin() {
           />
         ) : tab === 'runs' ? (
           <RunsTab
+            initialPerson={personParam}
+            onPersonUsed={() => setParams({ tab: 'runs' }, { replace: true })}
             runs={runs ?? []}
             urls={urls}
             ensureUrls={ensureUrls}
@@ -326,16 +437,21 @@ export default function Admin() {
           <UsersTab
             users={users}
             groups={groups}
+            runs={runs ?? []}
+            onOpenRuns={openRunsFor}
             onTeam={(user, team) => setDialog({ kind: 'team', user, team })}
             onGroup={(user, groupId) => setDialog({ kind: 'group', user, groupId })}
           />
         ) : tab === 'settings' ? (
-          <SettingsTab settings={settings} onReveal={(value) => setDialog({ kind: 'reveal', value })} />
+          <SettingsTab settings={settings} onReveal={(value) => setDialog({ kind: 'reveal', value })} onPin={(value) => setDialog({ kind: 'pin', value })} />
         ) : (
           <AuditTab
             audit={audit}
             error={auditError}
             onRetry={() => void loadAudit()}
+            hasMore={auditMore}
+            loadingMore={auditLoadingMore}
+            onMore={() => void loadMoreAudit()}
             userById={userById}
             runById={runById}
             groupById={groupById}
@@ -549,10 +665,249 @@ function RunCard({
   );
 }
 
-function ReviewTab({ queue, urls, ensureUrls, partnersOf, busyId, ...handlers }: ListProps & { queue: AdminRun[] }) {
+// ───────── shared run filters (person / reason / search) ─────────
+
+type Reason = 'all' | 'date' | 'duplicate' | 'limits';
+const REASONS: { id: Reason; label: string }[] = [
+  { id: 'all', label: 'Any reason' },
+  { id: 'date', label: 'Photo date' },
+  { id: 'duplicate', label: 'Duplicate photo' },
+  { id: 'limits', label: 'Distance / pace' },
+];
+const hasReason = (r: AdminRun, why: Reason) =>
+  why === 'all' ||
+  (why === 'date' && (r.flags.includes('date_mismatch') || r.flags.includes('no_date'))) ||
+  (why === 'duplicate' && isDuplicate(r)) ||
+  (why === 'limits' &&
+    (r.distance_km > REVIEW_DISTANCE_KM || (r.pace_sec_per_km != null && r.pace_sec_per_km < REVIEW_PACE_SEC)));
+
+type RunQuery = { q: string; person: string; reason: Reason; day: string };
+const EMPTY_QUERY: RunQuery = { q: '', person: '', reason: 'all', day: '' };
+
+function matchRun(r: AdminRun, { q, person, reason, day }: RunQuery) {
+  if (person && r.user_id !== person) return false;
+  if (day && r.ran_on !== day) return false;
+  if (!hasReason(r, reason)) return false;
+  const needle = q.trim().toLowerCase();
+  return (
+    !needle ||
+    r.display_name.toLowerCase().includes(needle) ||
+    (r.email ?? '').toLowerCase().includes(needle) ||
+    (r.team ?? '').toLowerCase() === needle
+  );
+}
+
+/** Search + runner picker + reason picker. Runner list is built from the runs given (name, run count). */
+function RunFilterBar({
+  runs,
+  query,
+  onChange,
+  children,
+}: {
+  runs: AdminRun[];
+  query: RunQuery;
+  onChange: (q: RunQuery) => void;
+  children?: ReactNode;
+}) {
+  const people = useMemo(() => {
+    const m = new Map<string, { name: string; team: string | null; n: number }>();
+    for (const r of runs) {
+      const p = m.get(r.user_id);
+      if (p) p.n += 1;
+      else m.set(r.user_id, { name: r.display_name, team: r.team, n: 1 });
+    }
+    return [...m.entries()].sort((a, b) => a[1].name.localeCompare(b[1].name));
+  }, [runs]);
+  const days = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const r of runs) m.set(r.ran_on, (m.get(r.ran_on) ?? 0) + 1);
+    return [...m.entries()].sort((a, b) => b[0].localeCompare(a[0]));
+  }, [runs]);
+  // Selected runner no longer in the list (last run approved/deleted) → drop the filter.
   useEffect(() => {
-    ensureUrls(queue.flatMap((r) => [r.image_path, ...partnersOf(r).map((p) => p.image_path)]));
-  }, [queue, partnersOf, ensureUrls]);
+    const stalePerson = query.person && !people.some(([id]) => id === query.person);
+    const staleDay = query.day && !days.some(([d]) => d === query.day);
+    if (stalePerson || staleDay)
+      onChange({ ...query, person: stalePerson ? '' : query.person, day: staleDay ? '' : query.day });
+  }, [people, days, query, onChange]);
+  const active = query.q || query.person || query.day || query.reason !== 'all';
+  return (
+    <div className="adm-toolbar adm-runbar">
+      {children}
+      <div className="adm-runbar-fields">
+        <label className="adm-search">
+          <span className="adm-sr">Search runs by name, email or team</span>
+          <input
+            type="search"
+            placeholder="Search name, email or team"
+            value={query.q}
+            onChange={(e) => onChange({ ...query, q: e.target.value })}
+          />
+        </label>
+        <label className="adm-inline-field">
+          <span className="adm-sr">Runner</span>
+          <select
+            className="adm-select"
+            value={query.person}
+            onChange={(e) => onChange({ ...query, person: e.target.value })}
+          >
+            <option value="">All runners ({people.length})</option>
+            {people.map(([id, p]) => (
+              <option key={id} value={id}>
+                {p.name}
+                {p.team ? ` · ${p.team}` : ''} ({p.n})
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="adm-inline-field">
+          <span className="adm-sr">Day</span>
+          <select className="adm-select" value={query.day} onChange={(e) => onChange({ ...query, day: e.target.value })}>
+            <option value="">All days ({days.length})</option>
+            {days.map(([d, n]) => (
+              <option key={d} value={d}>
+                {formatShort(d)} ({n})
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="adm-inline-field">
+          <span className="adm-sr">Reason</span>
+          <select
+            className="adm-select"
+            value={query.reason}
+            onChange={(e) => onChange({ ...query, reason: e.target.value as Reason })}
+          >
+            {REASONS.map((r) => (
+              <option key={r.id} value={r.id}>
+                {r.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        {active && (
+          <button type="button" className="btn-link" onClick={() => onChange(EMPTY_QUERY)}>
+            Clear
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/** One line per run: easier to scan when there are hundreds. */
+function RunTable({
+  runs,
+  busyId,
+  onPhoto,
+  onApprove,
+  onReject,
+  onEdit,
+  onDelete,
+}: CardHandlers & { runs: AdminRun[]; busyId: string | null }) {
+  return (
+    <div className="card adm-table-wrap">
+      <table className="adm-table" role="table">
+        <thead role="rowgroup">
+          <tr role="row">
+            <th role="columnheader" scope="col">Ran</th>
+            <th role="columnheader" scope="col">Runner</th>
+            <th role="columnheader" scope="col" className="num">Km</th>
+            <th role="columnheader" scope="col" className="num">Time</th>
+            <th role="columnheader" scope="col" className="num">Pace</th>
+            <th role="columnheader" scope="col">Status</th>
+            <th role="columnheader" scope="col">Flags</th>
+            <th role="columnheader" scope="col"><span className="adm-sr">Actions</span></th>
+          </tr>
+        </thead>
+        <tbody role="rowgroup">
+          {runs.map((r) => {
+            const busy = busyId === r.run_id;
+            const why = reasons(r);
+            return (
+              <tr key={r.run_id} role="row" aria-busy={busy}>
+                <td role="cell" className="nowrap" data-label="Ran">{formatShort(r.ran_on)}</td>
+                <td role="cell" data-label="Runner">
+                  <span className="adm-who">
+                    <strong>{r.display_name}</strong>
+                    {r.team && <span className="team-tag">{r.team}</span>}
+                  </span>
+                </td>
+                <td role="cell" className="num" data-label="Km">{km2(r.distance_km)}</td>
+                <td role="cell" className="num" data-label="Time">{r.duration_sec != null ? fmtHms(r.duration_sec) : '–'}</td>
+                <td role="cell" className="num" data-label="Pace">{r.pace_sec_per_km != null ? `${fmtPaceSec(r.pace_sec_per_km)} /km` : '–'}</td>
+                <td role="cell" data-label="Status"><StatusChip status={r.status} /></td>
+                <td role="cell" data-label="Flags">
+                  {why.length > 0 && (
+                    <span className="adm-table-flags" title={why.map((w) => w.text).join(' · ')}>
+                      {why.map((w) => (
+                        <span key={w.text} className={`adm-chip adm-${w.tone}`}>{w.text}</span>
+                      ))}
+                    </span>
+                  )}
+                </td>
+                <td role="cell">
+                  <span className="adm-table-actions">
+                    {r.image_path && (
+                      <button type="button" className="btn-ghost adm-icon-btn" onClick={() => onPhoto(r)} title="View photo" aria-label={`View photo of ${r.display_name}’s run`}>
+                        <Icon name="camera" size={16} />
+                      </button>
+                    )}
+                    {(r.status !== 'counted' || inQueue(r)) && !isDuplicate(r) && (
+                      <button type="button" className="btn-ghost adm-icon-btn adm-okbtn" onClick={() => onApprove(r)} disabled={busy} title="Approve" aria-label={`Approve ${r.display_name}’s run`}>
+                        <Icon name="check" size={16} />
+                      </button>
+                    )}
+                    {r.status !== 'rejected' && (
+                      <button type="button" className="btn-ghost adm-icon-btn adm-danger" onClick={() => onReject(r)} disabled={busy} title="Reject" aria-label={`Reject ${r.display_name}’s run`}>
+                        <Icon name="x" size={16} />
+                      </button>
+                    )}
+                    <button type="button" className="btn-ghost adm-icon-btn" onClick={() => onEdit(r)} disabled={busy} title="Edit" aria-label={`Edit ${r.display_name}’s run`}>
+                      <Icon name="edit" size={16} />
+                    </button>
+                    <button type="button" className="btn-ghost adm-icon-btn" onClick={() => onDelete(r)} disabled={busy} title="Delete" aria-label={`Delete ${r.display_name}’s run`}>
+                      <Icon name="trash" size={16} />
+                    </button>
+                  </span>
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+/** Totals for the selected runner, so an admin can see their whole picture at a glance. */
+function PersonSummary({ runs }: { runs: AdminRun[] }) {
+  if (runs.length === 0) return null;
+  const counted = runs.filter((r) => r.status === 'counted');
+  const km = counted.reduce((s, r) => s + Number(r.distance_km), 0);
+  const days = new Set(counted.map((r) => r.ran_on)).size;
+  const p = runs[0];
+  return (
+    <div className="card adm-person">
+      <span className="adm-who">
+        <strong>{p.display_name}</strong>
+        {p.team && <span className="team-tag">{p.team}</span>}
+      </span>
+      {p.email && <span className="muted small">{p.email}</span>}
+      <span className="small">
+        <strong>{km2(km)} km</strong> counted · {counted.length} runs · {days} days
+        {runs.length > counted.length && <> · {runs.length - counted.length} not counted</>}
+      </span>
+    </div>
+  );
+}
+
+function ReviewTab({ queue, urls, ensureUrls, partnersOf, busyId, ...handlers }: ListProps & { queue: AdminRun[] }) {
+  const [query, setQuery] = useState<RunQuery>(EMPTY_QUERY);
+  const shown = useMemo(() => queue.filter((r) => matchRun(r, query)), [queue, query]);
+  useEffect(() => {
+    ensureUrls(shown.flatMap((r) => [r.image_path, ...partnersOf(r).map((p) => p.image_path)]));
+  }, [shown, partnersOf, ensureUrls]);
 
   if (queue.length === 0) {
     return (
@@ -569,10 +924,17 @@ function ReviewTab({ queue, urls, ensureUrls, partnersOf, busyId, ...handlers }:
   const flagged = queue.length - pending;
   return (
     <div className="adm-list">
-      <p className="muted small">
+      <RunFilterBar runs={queue} query={query} onChange={setQuery} />
+      <p className="muted small" aria-live="polite">
+        {shown.length < queue.length && <>Showing {shown.length} of </>}
         {queue.length} to review · {pending} pending · {flagged} flagged (counted, not yet checked). Oldest first.
       </p>
-      {queue.map((r) => (
+      {shown.length === 0 && (
+        <div className="card adm-empty">
+          <p className="muted">No runs match.</p>
+        </div>
+      )}
+      {shown.map((r) => (
         <RunCard
           key={r.run_id}
           run={r}
@@ -597,10 +959,44 @@ const RUN_FILTERS: { id: RunFilter; label: string }[] = [
 ];
 const PAGE = 30;
 
-function RunsTab({ runs, urls, ensureUrls, partnersOf, busyId, ...handlers }: ListProps & { runs: AdminRun[] }) {
+function RunsTab({
+  runs,
+  initialPerson,
+  urls,
+  ensureUrls,
+  partnersOf,
+  busyId,
+  onPersonUsed,
+  ...handlers
+}: ListProps & { runs: AdminRun[]; initialPerson?: string; onPersonUsed?: () => void }) {
   const [filter, setFilter] = useState<RunFilter>('all');
-  const [q, setQ] = useState('');
+  const [query, setQueryRaw] = useState<RunQuery>({ ...EMPTY_QUERY, person: initialPerson ?? '' });
   const [limit, setLimit] = useState(PAGE);
+  // The ?person= link is a one-time hand-off: take it, then drop it from the URL.
+  useEffect(() => {
+    if (initialPerson) onPersonUsed?.();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  const [view, setViewRaw] = useState<'table' | 'cards'>(() => {
+    try {
+      return localStorage.getItem('adm-runs-view') === 'cards' ? 'cards' : 'table';
+    } catch {
+      return 'table';
+    }
+  });
+  const setView = (v: 'table' | 'cards') => {
+    setViewRaw(v);
+    try {
+      localStorage.setItem('adm-runs-view', v);
+    } catch {
+      /* ignore */
+    }
+  };
+  const setQuery = (nq: RunQuery) => {
+    setQueryRaw(nq);
+    setLimit(PAGE);
+  };
+  const pageSize = view === 'table' ? PAGE * 4 : PAGE;
 
   const counts = useMemo(() => {
     const c: Record<RunFilter, number> = { all: runs.length, counted: 0, pending: 0, rejected: 0, flagged: 0 };
@@ -611,26 +1007,29 @@ function RunsTab({ runs, urls, ensureUrls, partnersOf, busyId, ...handlers }: Li
     return c;
   }, [runs]);
 
-  const filtered = useMemo(() => {
-    const needle = q.trim().toLowerCase();
-    return runs.filter(
-      (r) =>
-        (filter === 'all' || (filter === 'flagged' ? r.flags.length > 0 : r.status === filter)) &&
-        (!needle ||
-          r.display_name.toLowerCase().includes(needle) ||
-          (r.email ?? '').toLowerCase().includes(needle) ||
-          (r.team ?? '').toLowerCase() === needle),
-    );
-  }, [runs, filter, q]);
-  const visible = useMemo(() => filtered.slice(0, limit), [filtered, limit]);
+  const filtered = useMemo(
+    () =>
+      runs.filter(
+        (r) =>
+          (filter === 'all' || (filter === 'flagged' ? r.flags.length > 0 : r.status === filter)) &&
+          matchRun(r, query),
+      ),
+    [runs, filter, query],
+  );
+  const visible = useMemo(() => filtered.slice(0, limit * (pageSize / PAGE)), [filtered, limit, pageSize]);
+  const personRuns = useMemo(
+    () => (query.person ? runs.filter((r) => r.user_id === query.person) : []),
+    [runs, query.person],
+  );
 
   useEffect(() => {
+    if (view !== 'cards') return; // table loads photos only when one is opened
     ensureUrls(visible.flatMap((r) => [r.image_path, ...partnersOf(r).filter(isDuplicate).map((p) => p.image_path)]));
-  }, [visible, partnersOf, ensureUrls]);
+  }, [view, visible, partnersOf, ensureUrls]);
 
   return (
     <div className="adm-list">
-      <div className="adm-toolbar">
+      <RunFilterBar runs={runs} query={query} onChange={setQuery}>
         <div className="adm-filters" role="group" aria-label="Filter by status">
           {RUN_FILTERS.map((f) => (
             <button
@@ -647,28 +1046,29 @@ function RunsTab({ runs, urls, ensureUrls, partnersOf, busyId, ...handlers }: Li
             </button>
           ))}
         </div>
-        <label className="adm-search">
-          <span className="adm-sr">Search runs by name, email or team</span>
-          <input
-            type="search"
-            placeholder="Search name, email or team"
-            value={q}
-            onChange={(e) => {
-              setQ(e.target.value);
-              setLimit(PAGE);
-            }}
-          />
-        </label>
-      </div>
+      </RunFilterBar>
 
-      <p className="muted small" aria-live="polite">
-        Showing {visible.length} of {filtered.length} runs · newest first
-      </p>
+      {query.person && <PersonSummary runs={personRuns} />}
+
+      <div className="adm-listhead">
+        <p className="muted small" aria-live="polite">
+          Showing {visible.length} of {filtered.length} runs · newest first
+        </p>
+        <div className="adm-filters adm-view" role="group" aria-label="View">
+          {(['table', 'cards'] as const).map((v) => (
+            <button key={v} type="button" aria-pressed={view === v} className={view === v ? 'on' : ''} onClick={() => setView(v)}>
+              {v === 'table' ? 'Table' : 'Cards'}
+            </button>
+          ))}
+        </div>
+      </div>
 
       {visible.length === 0 ? (
         <div className="card adm-empty">
           <p className="muted">No runs match.</p>
         </div>
+      ) : view === 'table' ? (
+        <RunTable runs={visible} busyId={busyId} {...handlers} />
       ) : (
         visible.map((r) => (
           <RunCard
@@ -685,7 +1085,7 @@ function RunsTab({ runs, urls, ensureUrls, partnersOf, busyId, ...handlers }: Li
 
       {filtered.length > visible.length && (
         <button type="button" className="btn-ghost adm-more" onClick={() => setLimit((n) => n + PAGE)}>
-          Show {Math.min(PAGE, filtered.length - visible.length)} more
+          Show {Math.min(pageSize, filtered.length - visible.length)} more
         </button>
       )}
     </div>
@@ -694,19 +1094,38 @@ function RunsTab({ runs, urls, ensureUrls, partnersOf, busyId, ...handlers }: Li
 
 // ───────── users ─────────
 
+type UserShow = 'all' | 'no_group' | 'no_runs' | 'pending' | 'unregistered';
+const USER_SHOW: { id: UserShow; label: string }[] = [
+  { id: 'all', label: 'Everyone' },
+  { id: 'no_group', label: 'No group' },
+  { id: 'no_runs', label: 'No runs yet' },
+  { id: 'pending', label: 'Has pending runs' },
+  { id: 'unregistered', label: 'Not registered' },
+];
+
 function UsersTab({
   users,
   groups,
+  runs,
+  onOpenRuns,
   onTeam,
   onGroup,
 }: {
   users: AdminUser[] | null;
   groups: Group[];
+  runs: AdminRun[];
+  onOpenRuns: (userId: string) => void;
   onTeam: (u: AdminUser, team: Team) => void;
   onGroup: (u: AdminUser, groupId: string | null) => void;
 }) {
   const [q, setQ] = useState('');
   const [team, setTeam] = useState<'all' | 'none' | Team>('all');
+  const [show, setShow] = useState<UserShow>('all');
+  const runCount = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const r of runs) m.set(r.user_id, (m.get(r.user_id) ?? 0) + 1);
+    return m;
+  }, [runs]);
   const sortedGroups = useMemo(() => [...groups].sort((a, b) => a.name.localeCompare(b.name)), [groups]);
 
   const list = useMemo(() => {
@@ -714,12 +1133,17 @@ function UsersTab({
     return (users ?? []).filter(
       (u) =>
         (team === 'all' || (team === 'none' ? !u.team : u.team === team)) &&
+        (show === 'all' ||
+          (show === 'no_group' && !u.group_id) ||
+          (show === 'no_runs' && !runCount.get(u.user_id)) ||
+          (show === 'pending' && u.pending_count > 0) ||
+          (show === 'unregistered' && !u.registered_at)) &&
         (!needle ||
           u.display_name.toLowerCase().includes(needle) ||
           (u.email ?? '').toLowerCase().includes(needle) ||
           (u.group_name ?? '').toLowerCase().includes(needle)),
     );
-  }, [users, q, team]);
+  }, [users, q, team, show, runCount]);
 
   if (!users) return <div className="card adm-empty"><p className="muted">Loading users…</p></div>;
   const registered = users.filter((u) => u.registered_at).length;
@@ -741,6 +1165,16 @@ function UsersTab({
               </option>
             ))}
             <option value="none">No team</option>
+          </select>
+        </label>
+        <label className="adm-inline-field">
+          <span>Show</span>
+          <select className="adm-select" value={show} onChange={(e) => setShow(e.target.value as UserShow)}>
+            {USER_SHOW.map((o) => (
+              <option key={o.id} value={o.id}>
+                {o.label}
+              </option>
+            ))}
           </select>
         </label>
       </div>
@@ -765,7 +1199,13 @@ function UsersTab({
                   <span>
                     <strong>{km2(u.counted_km)}</strong> km counted
                   </span>
+                  <span className="muted">{runCount.get(u.user_id) ?? 0} runs</span>
                   {u.pending_count > 0 && <span className="adm-chip adm-warn">{u.pending_count} pending</span>}
+                  {(runCount.get(u.user_id) ?? 0) > 0 && (
+                    <button type="button" className="btn-link adm-user-runs" onClick={() => onOpenRuns(u.user_id)}>
+                      View runs
+                    </button>
+                  )}
                 </span>
               </div>
               <label className="adm-field">
@@ -809,7 +1249,7 @@ function UsersTab({
 
 // ───────── settings ─────────
 
-function SettingsTab({ settings, onReveal }: { settings: AppSettings | null; onReveal: (v: boolean) => void }) {
+function SettingsTab({ settings, onReveal, onPin }: { settings: AppSettings | null; onReveal: (v: boolean) => void; onPin: (v: boolean) => void }) {
   if (!settings) return <div className="card adm-empty"><p className="muted">Loading settings…</p></div>;
   const locked = Date.now() >= new Date(settings.group_lock_at).getTime();
   const on = settings.reveal_distances;
@@ -838,6 +1278,33 @@ function SettingsTab({ settings, onReveal }: { settings: AppSettings | null; onR
           </button>
         </div>
         <p className={`adm-chip ${on ? 'adm-ok' : 'adm-neutral'} adm-state`}>{on ? 'Distances visible' : 'Distances hidden'}</p>
+      </div>
+
+      <div className="card">
+        <div className="adm-setting">
+          <div>
+            <h2 id="adm-pin-label">PIN sign-in</h2>
+            <p className="muted small" id="adm-pin-desc">
+              {settings.pin_login_enabled
+                ? 'Participants can set a 6-digit PIN and sign in with email + PIN. There is no lockout after wrong PINs on the current Supabase plan.'
+                : 'Microsoft 365 sign-in only. PINs cannot be set or used; the database blocks them, not just the screen.'}
+            </p>
+          </div>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={!!settings.pin_login_enabled}
+            aria-labelledby="adm-pin-label"
+            aria-describedby="adm-pin-desc"
+            className={`adm-switch ${settings.pin_login_enabled ? 'on' : ''}`}
+            onClick={() => onPin(!settings.pin_login_enabled)}
+          >
+            <span className="adm-switch-knob" />
+          </button>
+        </div>
+        <p className={`adm-chip ${settings.pin_login_enabled ? 'adm-warn' : 'adm-neutral'} adm-state`}>
+          {settings.pin_login_enabled ? 'PIN sign-in on · no lockout' : 'PIN sign-in off'}
+        </p>
       </div>
 
       <div className="card">
@@ -878,6 +1345,7 @@ const ACTION_LABEL: Record<string, string> = {
   'run.void_duplicate_pair': 'Duplicate pair voided',
   'run.delete': 'Run deleted',
   'settings.reveal_distances': 'Reveal distances',
+  'settings.pin_login_enabled': 'PIN sign-in',
   'profile.set_team': 'Team changed',
   'profile.set_group': 'Group changed',
 };
@@ -887,10 +1355,21 @@ type Change = { key: string; from: string; to: string };
 
 const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
 
+type AuditKind = 'all' | 'run' | 'profile' | 'settings';
+const AUDIT_KINDS: { id: AuditKind; label: string }[] = [
+  { id: 'all', label: 'All actions' },
+  { id: 'run', label: 'Runs (review, edit, delete)' },
+  { id: 'profile', label: 'Users (team, group)' },
+  { id: 'settings', label: 'Settings' },
+];
+
 function AuditTab({
   audit,
   error,
   onRetry,
+  hasMore,
+  loadingMore,
+  onMore,
   userById,
   runById,
   groupById,
@@ -898,6 +1377,9 @@ function AuditTab({
   audit: AuditEntry[] | null;
   error: string;
   onRetry: () => void;
+  hasMore: boolean;
+  loadingMore: boolean;
+  onMore: () => void;
   userById: Map<string, AdminUser>;
   runById: Map<string, AdminRun>;
   groupById: Map<string, Group>;
@@ -914,6 +1396,39 @@ function AuditTab({
   }
   if (!audit) return <div className="card adm-empty"><p className="muted">Loading audit log…</p></div>;
   if (audit.length === 0) return <div className="card adm-empty"><p className="muted">No admin actions yet.</p></div>;
+  return (
+    <AuditList
+      audit={audit}
+      hasMore={hasMore}
+      loadingMore={loadingMore}
+      onMore={onMore}
+      userById={userById}
+      runById={runById}
+      groupById={groupById}
+    />
+  );
+}
+
+function AuditList({
+  audit,
+  hasMore,
+  loadingMore,
+  onMore,
+  userById,
+  runById,
+  groupById,
+}: {
+  audit: AuditEntry[];
+  hasMore: boolean;
+  loadingMore: boolean;
+  onMore: () => void;
+  userById: Map<string, AdminUser>;
+  runById: Map<string, AdminRun>;
+  groupById: Map<string, Group>;
+}) {
+  const [kind, setKind] = useState<AuditKind>('all');
+  const [actorF, setActorF] = useState('');
+  const [q, setQ] = useState('');
 
   const fmtVal = (key: string, v: unknown): string => {
     if (v === null || v === undefined) return key === 'group_id' ? 'no group' : '–';
@@ -964,13 +1479,73 @@ function AuditTab({
       .join(' + ');
   };
 
+  const actorName = (id: string | null) => (id ? userById.get(id)?.display_name ?? `#${shortId(id)}` : 'System');
+  const actors = [...new Set(audit.map((e) => e.actor ?? ''))]
+    .map((id) => [id, actorName(id || null)] as const)
+    .sort((a, b) => a[1].localeCompare(b[1]));
+  const needle = q.trim().toLowerCase();
+  const shown = audit.filter(
+    (e) =>
+      (kind === 'all' || e.action.startsWith(`${kind}.`)) &&
+      (!actorF || (e.actor ?? '') === actorF) &&
+      (!needle || targetLabel(e).toLowerCase().includes(needle)),
+  );
+  const active = kind !== 'all' || !!actorF || !!needle;
+  const clear = () => {
+    setKind('all');
+    setActorF('');
+    setQ('');
+  };
+
   return (
     <div className="adm-list">
-      <p className="muted small">Latest {audit.length} admin actions, newest first. Times in Bangkok.</p>
-      <ol className="adm-audit card">
-        {audit.map((e) => {
+      <div className="adm-toolbar">
+        <div className="adm-runbar-fields">
+          <label className="adm-search">
+            <span className="adm-sr">Search by the person or run affected</span>
+            <input type="search" placeholder="Search who was affected" value={q} onChange={(e) => setQ(e.target.value)} />
+          </label>
+          <label className="adm-inline-field">
+            <span className="adm-sr">Action type</span>
+            <select className="adm-select" value={kind} onChange={(e) => setKind(e.target.value as AuditKind)}>
+              {AUDIT_KINDS.map((k) => (
+                <option key={k.id} value={k.id}>
+                  {k.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="adm-inline-field">
+            <span className="adm-sr">Done by</span>
+            <select className="adm-select" value={actorF} onChange={(e) => setActorF(e.target.value)}>
+              <option value="">Any admin</option>
+              {actors.map(([id, name]) => (
+                <option key={id || 'system'} value={id}>
+                  {name}
+                </option>
+              ))}
+            </select>
+          </label>
+          {active && (
+            <button type="button" className="btn-link" onClick={clear}>
+              Clear
+            </button>
+          )}
+        </div>
+      </div>
+      <p className="muted small" aria-live="polite">
+        {active ? `${shown.length} match in ` : 'Showing '}the latest {audit.length} admin actions, newest first. Times in
+        Bangkok.{active && hasMore ? ' Load older actions to search further back.' : ''}
+      </p>
+      {shown.length === 0 && (
+        <div className="card adm-empty">
+          <p className="muted">No actions match.</p>
+        </div>
+      )}
+      <ol className="adm-audit card" hidden={shown.length === 0}>
+        {shown.map((e) => {
           const changes = diff(e.before, e.after);
-          const actor = e.actor ? userById.get(e.actor)?.display_name ?? `#${shortId(e.actor)}` : 'System';
+          const actor = actorName(e.actor);
           return (
             <li key={e.id}>
               <div className="adm-audit-head">
@@ -1000,6 +1575,11 @@ function AuditTab({
           );
         })}
       </ol>
+      {hasMore && (
+        <button type="button" className="btn-ghost adm-more" onClick={onMore} disabled={loadingMore}>
+          {loadingMore ? 'Loading…' : 'Load older actions'}
+        </button>
+      )}
     </div>
   );
 }
@@ -1444,6 +2024,31 @@ function DialogHost({
             Works even after the group lock. A group leader must hand over leadership first, and a group left empty is
             disbanded.
           </p>
+        </ConfirmDialog>
+      );
+    }
+    case 'pin': {
+      const value = dialog.value;
+      return (
+        <ConfirmDialog
+          title={value ? 'Turn on PIN sign-in?' : 'Turn off PIN sign-in?'}
+          confirmLabel={value ? 'Turn on' : 'Turn off and remove all PINs'}
+          onClose={onClose}
+          onConfirm={async () => {
+            await adminSetPinLogin(value);
+            afterSave(value ? 'PIN sign-in is on' : 'PIN sign-in is off and all PINs were removed');
+          }}
+        >
+          {value ? (
+            <>
+              <p>Participants will be able to set a 6-digit PIN in their Profile and sign in with email + PIN.</p>
+              <p><strong>Security:</strong> the current Supabase plan has no lockout after wrong PINs, so a PIN can be
+                guessed by someone who keeps trying. Also make sure the Email provider is enabled in Supabase.</p>
+            </>
+          ) : (
+            <p>Every PIN that has been set will be deleted. People sign in with Microsoft 365 only. If you turn PINs on
+              again later, everyone has to set a new PIN.</p>
+          )}
         </ConfirmDialog>
       );
     }

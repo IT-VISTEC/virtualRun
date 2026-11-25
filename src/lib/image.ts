@@ -3,7 +3,7 @@ export const ACCEPT = 'image/jpeg,image/png,image/webp,image/gif,image/bmp,image
 export const FORMATS_LABEL = 'JPG, PNG, WebP, GIF, BMP, AVIF';
 export const MAX_INPUT_BYTES = 15 * 1024 * 1024;
 export const MAX_OUTPUT_BYTES = 5 * 1024 * 1024; // ต้องตรงกับ file_size_limit ของ bucket
-const MAX_SIDE = 1600;
+const MAX_SIDE = 1280;
 
 /** Lowercase hex SHA-256 of the file's bytes (use the ORIGINAL file, before toPng). */
 export async function sha256Hex(file: Blob): Promise<string> {
@@ -11,14 +11,24 @@ export async function sha256Hex(file: Blob): Promise<string> {
   return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, '0')).join('');
 }
 
-function canvasToPng(canvas: HTMLCanvasElement): Promise<Blob> {
+export type CompressedImage = { blob: Blob; type: 'image/webp' | 'image/jpeg'; ext: 'webp' | 'jpg' };
+
+function canvasToBlob(canvas: HTMLCanvasElement, type: string, quality: number): Promise<Blob> {
   return new Promise((resolve, reject) =>
-    canvas.toBlob((b) => (b ? resolve(b) : reject(new Error('Could not convert the image.'))), 'image/png'),
+    canvas.toBlob((b) => (b ? resolve(b) : reject(new Error('Could not convert the image.'))), type, quality),
   );
 }
 
-/** แปลงรูปเป็น PNG (หมุนตาม EXIF, ย่อด้านยาวไม่เกิน 1600px, ลดขนาดซ้ำถ้ายังเกิน 5 MB) */
-export async function toPng(file: File): Promise<Blob> {
+/** WebP where the browser can encode it; Safari (all versions) silently returns PNG, so fall back to JPEG. */
+async function encode(canvas: HTMLCanvasElement, quality: number): Promise<CompressedImage> {
+  const webp = await canvasToBlob(canvas, 'image/webp', quality);
+  if (webp.type === 'image/webp') return { blob: webp, type: 'image/webp', ext: 'webp' };
+  const jpg = await canvasToBlob(canvas, 'image/jpeg', quality);
+  return { blob: jpg, type: 'image/jpeg', ext: 'jpg' };
+}
+
+/** Resize (long side ≤ 1280 px, EXIF-rotated) and compress for upload. Keeps text on screenshots readable. */
+export async function compressImage(file: File): Promise<CompressedImage> {
   if (file.size > MAX_INPUT_BYTES) throw new Error('Image is too large (max 15 MB).');
   let bitmap: ImageBitmap;
   try {
@@ -28,15 +38,20 @@ export async function toPng(file: File): Promise<Blob> {
   }
   try {
     let side = MAX_SIDE;
+    let quality = 0.8;
     for (let attempt = 0; attempt < 4; attempt++) {
       const scale = Math.min(1, side / Math.max(bitmap.width, bitmap.height));
       const canvas = document.createElement('canvas');
       canvas.width = Math.max(1, Math.round(bitmap.width * scale));
       canvas.height = Math.max(1, Math.round(bitmap.height * scale));
-      canvas.getContext('2d')!.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
-      const png = await canvasToPng(canvas);
-      if (png.size <= MAX_OUTPUT_BYTES) return png;
-      side = Math.round(side * 0.7);
+      const ctx = canvas.getContext('2d')!;
+      ctx.fillStyle = '#fff'; // JPEG has no alpha: transparent areas become white, not black
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+      const out = await encode(canvas, quality);
+      if (out.blob.size <= MAX_OUTPUT_BYTES) return out;
+      side = Math.round(side * 0.75);
+      quality = Math.max(0.6, quality - 0.1);
     }
     throw new Error('Image is still too large after resizing. Try a smaller image.');
   } finally {

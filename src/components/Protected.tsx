@@ -2,7 +2,16 @@ import { Navigate, Outlet } from 'react-router-dom';
 import { useAuth } from '../auth/AuthProvider';
 import { Layout } from './Layout';
 
-const Loading = () => <div className="center-screen" role="status">Loading…</div>;
+const LOGO = `${import.meta.env.BASE_URL}logo.webp`;
+
+const Loading = () => (
+  <div className="center-screen splash-loading" role="status" aria-label="Loading">
+    <img src={LOGO} alt="VISTEC Virtual Run" className="splash-logo" />
+    <div className="splash-track" aria-hidden="true">
+      <span className="splash-bar" />
+    </div>
+  </div>
+);
 
 /** Signed-in only (no layout). Used for /welcome. */
 export function RequireSession() {

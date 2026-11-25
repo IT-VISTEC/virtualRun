@@ -3,17 +3,35 @@
 เว็บแอปที่ยืดหยุ่นตามขนาดจอ: บนเดสก์ท็อปเป็น sidebar ซ้าย บนมือถือเป็นแถบเมนูลอยด้านล่าง
 ล็อกอินด้วย Microsoft ผ่าน Supabase Auth เก็บข้อมูลใน Supabase Postgres และ deploy บน GitHub Pages
 
-**ฟีเจอร์:** ล็อกอิน Microsoft · หน้าหลัก (สรุปสัปดาห์ + กราฟรายวัน + เป้าหมายแรก) · บันทึก/ลบการวิ่ง · ชาเลนจ์ (เข้าร่วม/ออก + อันดับ) · โปรไฟล์
+**ฟีเจอร์:** ล็อกอิน Microsoft (+ PIN แบบเลือกเปิด) · หน้าหลัก (ยอดรวม, วันนี้, กราฟรายวัน, เหรียญ) · บันทึกการวิ่งพร้อมรูปหลักฐาน (OCR อ่านระยะ/เวลา/วันที่จากรูป, บีบอัดเป็น WebP/JPEG) · Leaderboard รายคน/กลุ่ม/ทีม · กลุ่ม & ทีม · โปรไฟล์ · Admin (ตรวจรูป, รายการวิ่ง, ผู้ใช้, ตั้งค่า, audit log, export CSV)
 
 ## 1) สร้างโปรเจกต์ Supabase และฐานข้อมูล
 
 1. สร้างโปรเจกต์ที่ https://supabase.com/dashboard
-2. ไปที่ **SQL Editor** แล้วรันไฟล์ตามลำดับ
-   - `supabase/migrations/0001_init.sql` (ตาราง + Row Level Security + ฟังก์ชันอันดับ)
-   - `supabase/seed.sql` (ชาเลนจ์ตัวอย่าง 1 รายการ แก้ชื่อ/เป้าหมายได้)
+2. ไปที่ **SQL Editor** แล้วรัน `supabase/migrations/` **ตามลำดับเลข** (แต่ละไฟล์รันซ้ำได้)
+
+   | ไฟล์ | เนื้อหา |
+   |---|---|
+   | `0001_init.sql` | ตารางหลัก + RLS |
+   | `0002_profiles_fix.sql` | แก้โปรไฟล์ |
+   | `0003_steps.sql` | จำนวนก้าว |
+   | `0004_run_images.sql` | bucket `run-images` + สิทธิ์ไฟล์ |
+   | `0005_event.sql` | ระบบงานวิ่ง: ช่วงงาน, ตรวจ/ธง, admin, อันดับ (ใส่อีเมล admin ในไฟล์ก่อนรัน) |
+   | `0006_avatar_chibi.sql` | avatar ตัวการ์ตูน |
+   | `0007_phase2.sql` | กลุ่ม/ทีม, audit log, ฟังก์ชัน admin |
+   | `0008_pin_hook_rls.sql`, `0009_pin_toggle.sql` | PIN sign-in (ปิดไว้เป็นค่าเริ่มต้น) |
+   | `0010_photo_date.sql` | ธง `no_date` / `date_mismatch` / รูปซ้ำ → `pending` |
+   | `0011_photo_compress.sql` | รับรูป WebP/JPEG |
+
+   > วันที่ในรูป (`photo_date`) มาจาก OCR ฝั่งเบราว์เซอร์ จึงเป็นตัวช่วยคัดกรอง ไม่ใช่การยืนยัน คนที่เรียก API ตรงส่งค่าเองได้ (เหมือนระยะและเวลา) admin ควรสุ่มตรวจรายการที่ `counted` ด้วย
 3. ไปที่ **Project Settings → API** คัดลอก **Project URL** และ **publishable key** (`sb_publishable_...` หรือ anon key แบบเดิมก็ใช้ได้)
 
 > ห้ามนำ `service_role` key มาใส่ในเว็บ ความปลอดภัยของข้อมูลมาจาก RLS ในไฟล์ migration (ผู้ใช้เห็น/แก้ได้เฉพาะการวิ่งของตัวเอง)
+
+### สคริปต์ดูแลระบบ (`supabase/ops/`)
+
+- `test_period_start.sql` เปิดช่วงทดสอบก่อนงานจริง
+- `test_period_end.sql` **รันก่อนวันเริ่มงานจริง** (ลบรายการวิ่งทดสอบ, คืนวันงาน 1–15 ธ.ค.) แล้วลบไฟล์ใน Storage → `run-images` ทั้งหมดด้วยมือ
 
 ## 2) เปิดล็อกอิน Microsoft (Azure) ใน Supabase
 
@@ -71,13 +89,15 @@ git push -u origin main
 ## โครงสร้าง
 
 ```
-supabase/migrations/0001_init.sql   ตาราง profiles, challenges, challenge_members, runs + RLS + ฟังก์ชัน
-supabase/seed.sql                   ชาเลนจ์ตัวอย่าง
+supabase/migrations/                0001–0011 (ดูข้อ 1)
+supabase/ops/                       สคริปต์เริ่ม/จบช่วงทดสอบ
 src/lib/supabase.ts                 สร้าง client (PKCE)
 src/lib/api.ts                      ฟังก์ชันเรียกฐานข้อมูลทั้งหมด
 src/auth/AuthProvider.tsx           session, โปรไฟล์, ล็อกอิน/ออกจากระบบ
 src/components/                     Layout (sidebar/tab bar), Protected, Icons
-src/pages/                          Login, Home, Challenges, Runs, Profile
+src/lib/ocr.ts, ocrParse.ts         OCR (Tesseract.js, ไฟล์ภาษาใน public/tessdata)
+src/lib/image.ts                    ย่อ + บีบรูปก่อนอัปโหลด
+src/pages/                          Login, Onboarding, Home, LogRun, Leaderboard, Team, Profile, Admin
 src/styles.css                      สไตล์ + breakpoint (ตัดที่ 899px และ 1100px)
 .github/workflows/deploy.yml        build + deploy GitHub Pages
 ```

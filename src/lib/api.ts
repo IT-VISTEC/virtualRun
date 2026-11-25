@@ -1,3 +1,4 @@
+import type { CompressedImage } from './image';
 import { supabase } from './supabase';
 import type {
   AdminRun,
@@ -33,7 +34,13 @@ const num = (v: unknown): number => (v == null ? 0 : Number(v));
 const numOrNull = (v: unknown): number | null => (v == null ? null : Number(v));
 
 async function rpc<T>(fn: string, params?: Record<string, unknown>): Promise<T> {
-  return unwrap((await supabase.rpc(fn, params)) as Res<T>);
+  try {
+    return unwrap((await supabase.rpc(fn, params)) as Res<T>);
+  } catch (e) {
+    const msg = (e as Error).message;
+    if (/groups_name_uniq/.test(msg)) throw new Error('That group name is already taken.');
+    throw e;
+  }
 }
 
 async function rows<T>(fn: string, params?: Record<string, unknown>): Promise<T[]> {
@@ -78,13 +85,24 @@ export async function updateAvatarUrl(userId: string, avatarUrl: string | null, 
 
 // ───────── Settings ─────────
 
+/** Works before sign-in. False on any error (feature off is the safe default). */
+export async function getPinLoginEnabled(): Promise<boolean> {
+  const res = await supabase.rpc('pin_login_enabled');
+  return !res.error && res.data === true;
+}
+
+export function adminSetPinLogin(enabled: boolean): Promise<void> {
+  return rpc<void>('admin_set_pin_login', { p_enabled: enabled });
+}
+
 export async function getAppSettings(): Promise<AppSettings> {
   const res = await supabase
     .from('app_settings')
     .select('reveal_distances, event_start, event_end, group_lock_at')
     .eq('id', 1)
     .single();
-  return unwrap(res as Res<AppSettings>);
+  const settings = unwrap(res as Res<AppSettings>);
+  return { ...settings, pin_login_enabled: await getPinLoginEnabled() };
 }
 
 /** Today's date (YYYY-MM-DD) in Asia/Bangkok according to the server. */
@@ -125,19 +143,19 @@ export async function listRuns(limit = 500): Promise<Run[]> {
 /** Insert a run whose photo is already uploaded. Returns the created row (status set by server). */
 export async function insertRun(run: NewRun): Promise<Run> {
   const steps = kmToSteps(run.distance_km);
-  const res = await supabase
-    .from('runs')
-    .insert({
-      distance_km: run.distance_km,
-      duration_sec: run.duration_sec,
-      image_path: run.image_path,
-      image_sha256: run.image_sha256,
-      note: run.note ?? null,
-      entry_type: 'km',
-      ...(steps > 0 ? { steps } : {}),
-    })
-    .select(RUN_COLS)
-    .single();
+  const row = {
+    distance_km: run.distance_km,
+    duration_sec: run.duration_sec,
+    image_path: run.image_path,
+    image_sha256: run.image_sha256,
+    note: run.note ?? null,
+    entry_type: 'km',
+    ...(steps > 0 ? { steps } : {}),
+  };
+  const ins = (r: object) => supabase.from('runs').insert(r).select(RUN_COLS).single();
+  let res = await ins(run.photo_date ? { ...row, photo_date: run.photo_date } : row);
+  // Before migration 0010 the column does not exist: save the run without the date check.
+  if (res.error && run.photo_date && res.error.message.includes('photo_date')) res = await ins(row);
   if (res.error) {
     const msg = res.error.message.includes('runs_image_path_uniq')
       ? 'This photo is already used by another run'
@@ -148,15 +166,15 @@ export async function insertRun(run: NewRun): Promise<Run> {
 }
 
 /**
- * Full submit flow: upload PNG to run-images, insert the run, remove the photo if the insert fails.
+ * Full submit flow: upload the compressed photo to run-images, insert the run, remove the photo if the insert fails.
  * `sha256` must be the hex SHA-256 of the ORIGINAL file bytes (see sha256Hex in ./image).
  */
 export async function submitRun(
-  run: { distance_km: number; duration_sec: number; note?: string | null },
-  png: Blob,
+  run: { distance_km: number; duration_sec: number; note?: string | null; photo_date?: string | null },
+  img: CompressedImage,
   sha256: string,
 ): Promise<Run> {
-  const image_path = await uploadRunPhoto(png);
+  const image_path = await uploadRunPhoto(img);
   try {
     return await insertRun({ ...run, image_path, image_sha256: sha256 });
   } catch (err) {
@@ -180,11 +198,11 @@ export async function deleteRun(id: string, imagePath?: string | null): Promise<
 
 export const RUN_BUCKET = 'run-images';
 
-/** Upload a PNG to `${uid}/${uuid}.png`; returns the object path. */
-export async function uploadRunPhoto(png: Blob): Promise<string> {
+/** Upload a compressed photo to `${uid}/${uuid}.<webp|jpg>`; returns the object path. */
+export async function uploadRunPhoto(img: CompressedImage): Promise<string> {
   const uid = await currentUserId();
-  const path = `${uid}/${crypto.randomUUID()}.png`;
-  const up = await supabase.storage.from(RUN_BUCKET).upload(path, png, { contentType: 'image/png', upsert: false });
+  const path = `${uid}/${crypto.randomUUID()}.${img.ext}`;
+  const up = await supabase.storage.from(RUN_BUCKET).upload(path, img.blob, { contentType: img.type, upsert: false });
   if (up.error) throw new Error(`Image upload failed: ${up.error.message}`);
   return path;
 }
@@ -367,13 +385,17 @@ export function adminDeleteRun(runId: string, note: string | null = null): Promi
   return rpc<void>('admin_delete_run', { p_run_id: runId, p_note: note });
 }
 
-/** Latest audit entries (admins only via RLS). */
-export async function listAuditLog(limit = 100): Promise<AuditEntry[]> {
-  const res = await supabase
+/** Latest audit entries (admins only via RLS). Pass `before` (the last entry's at + id) to page further back. */
+export async function listAuditLog(limit = 100, before?: { at: string; id: number }): Promise<AuditEntry[]> {
+  let qb = supabase
     .from('audit_log')
     .select('id, actor, action, target, before, after, at')
     .order('at', { ascending: false })
+    .order('id', { ascending: false })
     .limit(limit);
+  // Keyset cursor on (at, id): entries written in one transaction share `at`.
+  if (before) qb = qb.or(`at.lt."${before.at}",and(at.eq."${before.at}",id.lt.${before.id})`);
+  const res = await qb;
   return (unwrap(res as Res<AuditEntry[]>) ?? []) as AuditEntry[];
 }
 

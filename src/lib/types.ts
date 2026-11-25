@@ -43,6 +43,8 @@ export type NewRun = {
   image_path: string;
   image_sha256: string;
   note?: string | null;
+  /** date read from the screenshot (ISO), when OCR found one; server flags it if it isn't the run day */
+  photo_date?: string | null;
 };
 
 export type Summary = {
@@ -150,6 +152,8 @@ export type AdminRun = {
   review_note: string | null;
   reviewed_at: string | null;
   created_at: string;
+  /** date read from the screenshot (0010+) */
+  photo_date?: string | null;
 };
 
 export type AppSettings = {
@@ -157,6 +161,8 @@ export type AppSettings = {
   event_start: string; // YYYY-MM-DD
   event_end: string; // YYYY-MM-DD
   group_lock_at: string; // ISO timestamp
+  /** admin switch; false when the column does not exist yet (before 0009) */
+  pin_login_enabled?: boolean;
 };
 
 export type AuditEntry = {

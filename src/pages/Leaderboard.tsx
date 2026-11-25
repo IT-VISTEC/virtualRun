@@ -382,7 +382,7 @@ export default function Leaderboard() {
       ) : (
         <p className="lb-note">
           <Icon name="lock" size={16} />
-          Distances stay hidden until the event ends · ranks update daily
+          Distances stay hidden until the event ends · today's runs join the ranking after midnight
         </p>
       )}
 

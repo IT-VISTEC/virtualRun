@@ -8,8 +8,6 @@ import { fmtKm, fmtSteps, kmToSteps } from '../lib/format';
 import { Icon, IconName } from '../components/Icons';
 import './Home.css';
 
-const HERO = `${import.meta.env.BASE_URL}hero.webp`;
-
 // ───────── helpers ─────────
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
@@ -145,16 +143,21 @@ function DailyChart({ dates, perDay, today }: { dates: string[]; perDay: Map<str
   const active = dates.filter((d) => (perDay.get(d) ?? 0) > 0);
   return (
     <>
-      <div className="home-chart" aria-hidden="true">
+      <div
+        className={`home-chart${dates.length <= 10 ? ' few' : ''}`}
+        aria-hidden="true"
+        style={{ ['--home-cols' as string]: dates.length }}
+      >
         {dates.map((d) => {
           const v = round2(perDay.get(d) ?? 0);
           const future = d > today;
+          const pct = Math.max(5, (v / max) * 100);
           const cls = ['home-col', d === today ? 'today' : '', future ? 'future' : '', v > 0 ? 'has' : ''].join(' ');
           return (
             <div key={d} className={cls}>
-              <span className="home-col-val">{v > 0 ? fmtKm(v) : ''}</span>
               <div className="home-col-track">
-                <div className="home-col-fill" style={v > 0 ? { height: `${Math.max(5, (v / max) * 100)}%` } : undefined} />
+                <div className="home-col-fill" style={v > 0 ? { height: `${pct}%` } : undefined} />
+                {v > 0 && <span className="home-col-val" style={{ bottom: `${pct}%` }}>{fmtKm(v)}</span>}
                 <span className="home-tip">
                   {formatShort(d)}: {v > 0 ? `${fmtKm(v)} km` : future ? '—' : 'rest day'}
                 </span>
@@ -213,16 +216,29 @@ function Achievements({ badges, preEvent }: { badges: Badge[]; preEvent: boolean
   const unlocked = badges.filter((b) => b.reachedOn).length;
   return (
     <section className="card home-ach reveal" style={{ animationDelay: '260ms' }} aria-labelledby="home-ach-h">
+      {/* shared gradient for unlocked hexes */}
+      <svg width="0" height="0" style={{ position: 'absolute' }} aria-hidden="true" focusable="false">
+        <defs>
+          <linearGradient id="hex-grad" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0" stopColor="#ff9a52" />
+            <stop offset="1" stopColor="#e2560f" />
+          </linearGradient>
+        </defs>
+      </svg>
       <div className="card-head">
         <h2 id="home-ach-h">{preEvent ? 'Badges to earn' : 'Achievements'}</h2>
         <span className="home-count">{unlocked} / {badges.length} unlocked</span>
+      </div>
+      <div className="home-ach-total" aria-hidden="true">
+        <span style={{ width: `${badges.length ? (unlocked / badges.length) * 100 : 0}%` }} />
       </div>
       {(['distance', 'days', 'streak'] as BadgeKind[]).map((kind) => (
         <div key={kind} className="home-ach-group">
           <h3 className="home-ach-h3"><Icon name={KIND_META[kind].icon} size={16} /> {KIND_META[kind].heading}</h3>
           <ul className="home-badges">
-            {badges.filter((b) => b.kind === kind).map((b) => (
-              <li key={b.key} className={`home-badge${b.reachedOn ? ' on' : ''}`}
+            {badges.filter((b) => b.kind === kind).map((b, _i, group) => (
+              <li key={b.key}
+                className={`home-badge${b.reachedOn ? ' on' : ''}${!preEvent && group.find((x) => !x.reachedOn) === b ? ' next' : ''}`}
                 aria-label={`${b.title}: ${b.reachedOn ? `unlocked ${formatShort(b.reachedOn)}` : `locked, ${b.progress}`}`}>
                 <BadgeHex badge={b} />
                 <div className="home-badge-text">
@@ -231,6 +247,7 @@ function Achievements({ badges, preEvent }: { badges: Badge[]; preEvent: boolean
                     <span className="home-badge-date"><Icon name="check" size={13} strokeWidth={3} /> {formatShort(b.reachedOn)}</span>
                   ) : (
                     <>
+                      {!preEvent && group.find((x) => !x.reachedOn) === b && <span className="home-badge-next">Next up</span>}
                       <span className="home-badge-prog">{b.progress}</span>
                       <span className="home-badge-bar"><span style={{ width: `${b.pct}%` }} /></span>
                     </>
@@ -302,9 +319,43 @@ export default function Home() {
   const startMs = settings ? new Date(`${start}T00:00:00+07:00`).getTime() : null;
   const cd = useCountdown(phase === 'pre' ? startMs : null);
 
+function useCountUp(target: number, enabled: boolean, durationMs = 700) {
+  const [value, setValue] = useState(0);
+
+  useEffect(() => {
+    if (!enabled || target <= 0) {
+      setValue(0);
+      return;
+    }
+
+    let rafId = 0;
+    const start = performance.now();
+    const tick = (now: number) => {
+      const progress = Math.min(1, (now - start) / durationMs);
+      const eased = 1 - Math.pow(1 - progress, 3);
+      setValue(target * eased);
+      if (progress < 1) {
+        rafId = requestAnimationFrame(tick);
+      }
+    };
+    rafId = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(rafId);
+  }, [target, enabled, durationMs]);
+
+  return value;
+}
+
   const loading = !error && (!summary || !settings || !runs);
   const totalKm = summary?.total_km ?? 0;
   const todayKm = phase === 'live' ? summary?.today_km ?? 0 : 0;
+  const totalStepsTarget = summary?.steps ?? kmToSteps(totalKm);
+  const activeDaysTarget = summary?.active_days ?? 0;
+  const todayStepsTarget = kmToSteps(todayKm);
+  const animTotalKm = useCountUp(totalKm, !loading);
+  const animTodayKm = useCountUp(todayKm, !loading);
+  const animTotalSteps = Math.round(useCountUp(totalStepsTarget, !loading));
+  const animActiveDays = Math.round(useCountUp(activeDaysTarget, !loading));
+  const animTodaySteps = Math.round(useCountUp(todayStepsTarget, !loading));
   const pending = summary?.pending_count ?? 0;
 
   const subtitle =
@@ -405,11 +456,18 @@ export default function Home() {
       ) : (
         <>
           <div className="metrics home-metrics">
-            <section className="metric metric-km hot reveal" style={{ animationDelay: '80ms', ['--hero' as string]: `url(${HERO})` }}
+            <section className="metric metric-km hot home-hero reveal" style={{ animationDelay: '80ms' }}
               aria-labelledby="home-total-h">
+              <img
+                className={`home-hero-avatar ${heroAvatar.includes('/avatars/') ? 'cutout' : 'framed'}`}
+                src={heroAvatar}
+                alt=""
+                width={170}
+                height={170}
+              />
               <div className="metric-top"><span id="home-total-h">Total</span><span className="pill">{windowLabel(start, end)}</span></div>
-              <div className="metric-big">{fmtKm(totalKm)}<small>km</small></div>
-              <span className="metric-sub">{fmtSteps(summary?.steps ?? kmToSteps(totalKm))} steps · {summary?.active_days ?? 0} active {summary?.active_days === 1 ? 'day' : 'days'}</span>
+              <div className="metric-big">{fmtKm(animTotalKm)}<small>km</small></div>
+              <span className="metric-sub">{fmtSteps(animTotalSteps)} steps · {animActiveDays} active {activeDaysTarget === 1 ? 'day' : 'days'}</span>
             </section>
             <section className="metric home-today reveal" style={{ animationDelay: '140ms' }} aria-labelledby="home-today-h">
               <div className="metric-top">
@@ -418,16 +476,21 @@ export default function Home() {
               </div>
               {phase === 'live' ? (
                 <>
-                  <div className="metric-mid">{fmtKm(todayKm)}<small>km</small></div>
-                  <span className="metric-sub">{fmtSteps(kmToSteps(todayKm))} steps</span>
-                  {(stats.currentStreak >= 2 || todayKm === 0) && (
-                    <div className="home-today-foot">
-                      {stats.currentStreak >= 2 ? (
-                        <span className="home-streak"><Icon name="flame" size={16} /> {stats.currentStreak}-day streak</span>
-                      ) : <span />}
-                      {todayKm === 0 && <Link to="/log" className="home-link">Log today’s run <Icon name="chevron-right" size={16} /></Link>}
+                  {/* Same layout as Total: figures pinned bottom-left, extras bottom-right */}
+                  <div className="home-today-body">
+                    <div className="home-today-figs">
+                      <div className="metric-mid">{fmtKm(animTodayKm)}<small>km</small></div>
+                      <span className="metric-sub">{fmtSteps(animTodaySteps)} steps</span>
                     </div>
-                  )}
+                    {(stats.currentStreak >= 2 || todayKm === 0) && (
+                      <div className="home-today-foot">
+                        {stats.currentStreak >= 2 && (
+                          <span className="home-streak"><Icon name="flame" size={16} /> {stats.currentStreak}-day streak</span>
+                        )}
+                        {todayKm === 0 && <Link to="/log" className="home-link">Log today’s run <Icon name="chevron-right" size={16} /></Link>}
+                      </div>
+                    )}
+                  </div>
                 </>
               ) : (
                 <>

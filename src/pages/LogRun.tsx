@@ -1,8 +1,10 @@
 import { ChangeEvent, DragEvent, FormEvent, KeyboardEvent, RefObject, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AppSettings, Run, RunStatus, bkkToday, deleteRun, getAppSettings, listRuns, signedUrls, submitRun } from '../lib/api';
+import { createPortal } from 'react-dom';
 import { useAuth } from '../auth/AuthProvider';
 import { Icon } from '../components/Icons';
-import { ACCEPT, FORMATS_LABEL, sha256Hex, toPng } from '../lib/image';
+import { ACCEPT, FORMATS_LABEL, compressImage, sha256Hex, type CompressedImage } from '../lib/image';
+import { OcrResult, checkPhotoDate, extractRunFromImage } from '../lib/ocr';
 import { bangkokToday, parseISODate } from '../lib/dates';
 import { REVIEW_DISTANCE_KM, REVIEW_PACE_SEC, fmtHms, fmtPaceSec, fmtSteps, kmToSteps } from '../lib/format';
 import './LogRun.css';
@@ -29,7 +31,7 @@ const STATUS_LABEL: Record<RunStatus, string> = {
   rejected: 'Rejected',
 };
 
-type Photo = { name: string; size: number; png: Blob; sha: string; url: string };
+type Photo = { name: string; size: number; img: CompressedImage; sha: string; url: string };
 type Time = { h: string; m: string; s: string };
 const EMPTY_TIME: Time = { h: '', m: '', s: '' };
 
@@ -61,6 +63,27 @@ export default function LogRun() {
   const [time, setTime] = useState<Time>(EMPTY_TIME);
   const [photo, setPhoto] = useState<Photo | null>(null);
   const [preparing, setPreparing] = useState(false);
+  const [ocrNote, setOcrNote] = useState<string | null>(null);
+  /** frame colour of the proof card: ok = read fine (green), flag = will be reviewed (orange) */
+  const [ocrTone, setOcrTone] = useState<'ok' | 'flag' | null>(null);
+  /** full-size viewer: the image URL being shown (upload preview or a past run's photo) */
+  const [viewing, setViewing] = useState<string | null>(null);
+  const ocrRef = useRef<Promise<OcrResult> | null>(null);
+  useEffect(() => {
+    if (!viewing) return;
+    const onKey = (e: globalThis.KeyboardEvent) => e.key === 'Escape' && setViewing(null);
+    window.addEventListener('keydown', onKey);
+    // lock the page behind the viewer (overflow alone doesn't stop iOS Safari, so pin the body)
+    const y = window.scrollY;
+    const b = document.body.style;
+    const prev = { position: b.position, top: b.top, width: b.width, overflow: b.overflow };
+    Object.assign(b, { position: 'fixed', top: `-${y}px`, width: '100%', overflow: 'hidden' });
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      Object.assign(b, prev);
+      window.scrollTo(0, y);
+    };
+  }, [viewing]);
   const [dragOver, setDragOver] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -190,10 +213,50 @@ export default function LogRun() {
       if (file.type && !ACCEPT.split(',').includes(file.type)) {
         throw new Error(`Unsupported image. Please use ${FORMATS_LABEL}.`);
       }
-      // Hash the ORIGINAL bytes (duplicate check), then convert to PNG for upload.
-      const [sha, png] = await Promise.all([sha256Hex(file), toPng(file)]);
+      // Hash the ORIGINAL bytes (duplicate check), then compress (WebP, or JPEG on Safari) for upload.
+      const [sha, img] = await Promise.all([sha256Hex(file), compressImage(file)]);
       if (token !== pickToken.current) return;
-      setPhoto({ name: file.name, size: file.size, png, sha, url: URL.createObjectURL(png) });
+      if (photo) resetValues(); // replacing a photo (only once the new one is good): let it fill the form
+      setPhoto({ name: file.name, size: file.size, img, sha, url: URL.createObjectURL(img.blob) });
+      setOcrNote('Reading screenshot…');
+      setOcrTone(null);
+      const ocr = extractRunFromImage(file, today);
+      ocrRef.current = ocr;
+      void ocr.then((res) => {
+        if (token !== pickToken.current) return;
+        let filled = false;
+        if (res.distanceKm != null) {
+          setKmText((prev) => (prev ? prev : res.distanceKm!.toFixed(2)));
+          filled = true;
+        }
+        if (res.durationSec != null) {
+          const h = Math.floor(res.durationSec / 3600);
+          const m = Math.floor((res.durationSec % 3600) / 60);
+          const s = res.durationSec % 60;
+          setTime((prev) =>
+            prev.h || prev.m || prev.s
+              ? prev
+              : {
+                  h: h > 0 ? String(h) : '',
+                  m: String(m).padStart(2, '0'),
+                  s: String(s).padStart(2, '0'),
+                },
+          );
+          filled = true;
+        }
+        const dateState = checkPhotoDate(res.dates, today).state;
+        setOcrTone(dateState === 'match' ? 'ok' : 'flag');
+        const fillNote = filled ? 'Auto-filled — please verify' : 'Could not auto-read — please enter manually';
+        setOcrNote(
+          dateState === 'mismatch'
+            ? `Screenshot date isn't today — an admin will check this run · ${fillNote}`
+            : dateState === 'unknown'
+              ? `No date found on screenshot — an admin will check this run · ${fillNote}`
+              : filled
+                ? 'Auto-filled from screenshot — please verify'
+                : 'Could not auto-read — please enter manually',
+        );
+      });
     } catch (err) {
       if (token === pickToken.current) setError((err as Error).message);
     } finally {
@@ -212,7 +275,17 @@ export default function LogRun() {
   function clearPhoto() {
     pickToken.current++;
     setPreparing(false);
+    setOcrNote(null);
+    setOcrTone(null);
     setPhoto(null);
+    setViewing(null);
+    ocrRef.current = null;
+    resetValues();
+  }
+
+  function resetValues() {
+    setKmText('');
+    setTime(EMPTY_TIME);
   }
 
   async function onSubmit(e: FormEvent) {
@@ -249,8 +322,13 @@ export default function LogRun() {
     setSaving(true);
     try {
       const distance = Math.round(km * 100) / 100;
-      // Uploads to run-images/<uid>/<uuid>.png, inserts, and removes the photo if the insert fails.
-      const run = await submitRun({ distance_km: distance, duration_sec: sec }, photo.png, photo.sha);
+      // Uploads to run-images/<uid>/<uuid>.webp|jpg, inserts, and removes the photo if the insert fails.
+      // Date shown on the screenshot (if OCR read one). Wait briefly if OCR is still running.
+      const ocr = ocrRef.current
+        ? await Promise.race([ocrRef.current, new Promise<null>((r) => setTimeout(() => r(null), 8000))])
+        : null;
+      const photo_date = ocr ? checkPhotoDate(ocr.dates, today).date : null;
+      const run = await submitRun({ distance_km: distance, duration_sec: sec, photo_date }, photo.img, photo.sha);
       const pending = run.status === 'pending';
       setOk({
         pending,
@@ -261,6 +339,9 @@ export default function LogRun() {
       setKmText('');
       setTime(EMPTY_TIME);
       setPhoto(null);
+      setOcrNote(null);
+      setOcrTone(null);
+      ocrRef.current = null;
       setRuns((rs) => [run, ...(rs ?? []).filter((r) => r.id !== run.id)]);
       void reload();
       kmRef.current?.focus();
@@ -333,6 +414,68 @@ export default function LogRun() {
           <span>Outside the event window. As an admin you can still submit for testing.</span>
         </p>
       )}
+
+      <div className="lr-field">
+        <span className="lr-label" id="lr-photo-label">Proof screenshot <span className="lr-req">required</span></span>
+        <input
+          ref={fileRef}
+          id="lr-file"
+          className="lr-file-input"
+          type="file"
+          accept={ACCEPT}
+          tabIndex={-1}
+          aria-hidden="true"
+          onChange={(e) => void pickPhoto(e.target.files?.[0])}
+        />
+        {viewing && createPortal(
+          <div className="lr-viewer" role="dialog" aria-modal="true" aria-label="Screenshot" onClick={() => setViewing(null)}>
+            <img src={viewing} alt="Proof screenshot, full size" />
+            <button type="button" className="lr-viewer-close" onClick={() => setViewing(null)} aria-label="Close" autoFocus>✕</button>
+          </div>,
+          document.body,
+        )}
+        {photo ? (
+          <div className={`lr-photo${ocrTone ? ` lr-photo-${ocrTone}` : ''}`}>
+            <button type="button" className="lr-photo-thumb" onClick={() => setViewing(photo.url)} aria-label="View screenshot full size">
+              <img src={photo.url} alt="Selected proof screenshot" />
+              <span className="lr-photo-zoom" aria-hidden="true">⤢</span>
+            </button>
+            <div className="lr-photo-info">
+              <span className="lr-photo-name" title={photo.name}>{photo.name}</span>
+              <span className="lr-hint">{ocrNote ?? `${fmtBytes(photo.size)} · ready`}</span>
+              <div className="lr-photo-actions">
+                <button type="button" className="btn-ghost lr-sm" onClick={() => fileRef.current?.click()} disabled={saving}>Change</button>
+                <button type="button" className="btn-link lr-sm-link" onClick={clearPhoto} disabled={saving}>Remove</button>
+              </div>
+            </div>
+          </div>
+        ) : (
+          <div
+            className={`lr-drop${dragOver ? ' over' : ''}`}
+            onDragOver={(e) => {
+              e.preventDefault();
+              setDragOver(true);
+            }}
+            onDragLeave={() => setDragOver(false)}
+            onDrop={onDrop}
+          >
+            <button
+              type="button"
+              className="lr-drop-btn"
+              onClick={() => fileRef.current?.click()}
+              disabled={preparing || saving}
+              aria-labelledby="lr-photo-label lr-drop-text"
+              aria-describedby="lr-photo-hint"
+            >
+              <span className="lr-drop-icon"><Icon name="camera" size={22} /></span>
+              <span id="lr-drop-text" className="lr-drop-text">{preparing ? 'Preparing photo…' : 'Choose screenshot'}</span>
+            </button>
+            <span id="lr-photo-hint" className="lr-hint">
+              Screenshot of today's run from your app or watch. {FORMATS_LABEL}, up to 15 MB.
+            </span>
+          </div>
+        )}
+      </div>
 
       <div className="lr-field">
         <label htmlFor="lr-km" className="lr-label">Distance</label>
@@ -414,58 +557,6 @@ export default function LogRun() {
           </span>
         </p>
       )}
-
-      <div className="lr-field">
-        <span className="lr-label" id="lr-photo-label">Proof screenshot <span className="lr-req">required</span></span>
-        <input
-          ref={fileRef}
-          id="lr-file"
-          className="lr-file-input"
-          type="file"
-          accept={ACCEPT}
-          tabIndex={-1}
-          aria-hidden="true"
-          onChange={(e) => void pickPhoto(e.target.files?.[0])}
-        />
-        {photo ? (
-          <div className="lr-photo">
-            <img src={photo.url} alt="Selected proof screenshot" />
-            <div className="lr-photo-info">
-              <span className="lr-photo-name" title={photo.name}>{photo.name}</span>
-              <span className="lr-hint">{fmtBytes(photo.size)} · ready</span>
-              <div className="lr-photo-actions">
-                <button type="button" className="btn-ghost lr-sm" onClick={() => fileRef.current?.click()} disabled={saving}>Change</button>
-                <button type="button" className="btn-link lr-sm-link" onClick={clearPhoto} disabled={saving}>Remove</button>
-              </div>
-            </div>
-          </div>
-        ) : (
-          <div
-            className={`lr-drop${dragOver ? ' over' : ''}`}
-            onDragOver={(e) => {
-              e.preventDefault();
-              setDragOver(true);
-            }}
-            onDragLeave={() => setDragOver(false)}
-            onDrop={onDrop}
-          >
-            <button
-              type="button"
-              className="lr-drop-btn"
-              onClick={() => fileRef.current?.click()}
-              disabled={preparing || saving}
-              aria-labelledby="lr-photo-label lr-drop-text"
-              aria-describedby="lr-photo-hint"
-            >
-              <span className="lr-drop-icon"><Icon name="camera" size={22} /></span>
-              <span id="lr-drop-text" className="lr-drop-text">{preparing ? 'Preparing photo…' : 'Choose screenshot'}</span>
-            </button>
-            <span id="lr-photo-hint" className="lr-hint">
-              Screenshot of today's run from your app or watch. {FORMATS_LABEL}, up to 15 MB.
-            </span>
-          </div>
-        )}
-      </div>
 
       {error && <p className="alert" role="alert">{error}</p>}
       {ok && (
@@ -550,9 +641,9 @@ export default function LogRun() {
                   return (
                     <li key={r.id} className="lr-run">
                       {thumb ? (
-                        <a className="lr-thumb" href={thumb} target="_blank" rel="noreferrer" aria-label={`Open photo of ${fmtDist(r.distance_km)} km run`}>
+                        <button type="button" className="lr-thumb" onClick={() => setViewing(thumb)} aria-label={`View photo of ${fmtDist(r.distance_km)} km run`}>
                           <img src={thumb} alt="" loading="lazy" />
-                        </a>
+                        </button>
                       ) : (
                         <span className="lr-thumb lr-thumb-empty" aria-hidden="true"><Icon name="camera" size={18} /></span>
                       )}
