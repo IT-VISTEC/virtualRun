@@ -11,6 +11,7 @@ import LogRun from './pages/LogRun';
 import Team from './pages/Team';
 import Profile from './pages/Profile';
 import Admin from './pages/Admin';
+import Guide from './pages/Guide';
 import './styles.css';
 
 createRoot(document.getElementById('root')!).render(
@@ -20,6 +21,7 @@ createRoot(document.getElementById('root')!).render(
       <HashRouter>
         <Routes>
           <Route path="/login" element={<Login />} />
+          <Route path="/guide" element={<Guide />} />
           <Route element={<RequireSession />}>
             <Route path="welcome" element={<Onboarding />} />
           </Route>

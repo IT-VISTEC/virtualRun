@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { Navigate } from 'react-router-dom';
+import { Link, Navigate } from 'react-router-dom';
 import { useAuth } from '../auth/AuthProvider';
 import { isConfigured } from '../lib/supabase';
 import { getPinLoginEnabled } from '../lib/api';
@@ -171,6 +171,8 @@ export default function Login() {
           )}
         </div>
         <p className="legal login-legal">
+          New here? <Link to="/guide">See how it works</Link>
+          <br />
           By signing in, you agree to the{' '}
           <button
             type="button"

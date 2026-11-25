@@ -363,6 +363,8 @@ export default function Profile() {
 
       {pinEnabled && <PinCard />}
 
+      <Link to="/guide" className="btn-ghost pf-guide reveal" style={{ animationDelay: '130ms' }}>How to use the app</Link>
+
       <button className="btn-ghost pf-signout reveal" style={{ animationDelay: '140ms' }} onClick={() => void signOut()}>Sign out</button>
     </div>
   );

@@ -33,3 +33,4 @@
 .pf-dot { color: var(--muted); }
 .pf-group { display: inline-flex; align-items: center; gap: 6px; color: var(--ink); font-weight: 700; text-decoration: none; }
 .pf-group:hover { color: var(--accent); }
+.pf-guide { align-self: center; width: 100%; justify-content: center; text-decoration: none; }

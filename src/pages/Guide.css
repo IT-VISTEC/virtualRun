@@ -1,0 +1,89 @@
+/* User guide page (public). Uses the app's tokens from styles.css; prefix gd- to avoid collisions. */
+.gd { min-height: 100vh; background: var(--bg); color: var(--ink); }
+.gd-bar {
+  position: sticky; top: 0; z-index: 10; display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: calc(10px + env(safe-area-inset-top)) max(20px, env(safe-area-inset-right)) 10px max(20px, env(safe-area-inset-left));
+  background: rgba(14, 14, 14, .82); -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px); border-bottom: 1px solid var(--line);
+}
+.gd-logo img { height: 34px; width: auto; display: block; }
+.gd-back { min-height: 40px; padding: 0 16px; font-size: 14px; }
+
+.gd-wrap { max-width: 1000px; margin: 0 auto; padding: 0 20px 80px; }
+.gd-hero { padding: 40px 0 24px; display: grid; gap: 12px; }
+.gd-eyebrow { font-size: 13px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--accent); }
+.gd-hero h1 { margin: 0; font-size: clamp(32px, 6vw, 48px); line-height: 1.1; text-wrap: balance; }
+.gd-hero p { margin: 0; max-width: 62ch; }
+.gd-facts { display: flex; flex-wrap: wrap; gap: 8px; }
+.gd-facts span { background: var(--paper); border: 1px solid var(--line); border-radius: 999px; padding: 4px 12px; font-size: 14px; }
+.gd-facts b { color: var(--accent); font-weight: 600; }
+.gd-sample { font-size: 13px; color: var(--muted); }
+
+.gd-toc { margin-bottom: 12px; }
+.gd-toc h2 { margin: 0; font-size: 14px; color: var(--muted); font-weight: 600; }
+.gd-toc ol { margin: 0; padding-left: 20px; columns: 3; column-gap: 28px; }
+.gd-toc li { break-inside: avoid; }
+.gd-toc button { background: none; border: 0; padding: 2px 0; color: var(--ink); font: inherit; font-size: 15px; cursor: pointer; text-align: left; }
+.gd-toc button:hover { color: var(--accent); }
+
+.gd-sec { padding: 36px 0; border-top: 1px solid var(--line); scroll-margin-top: 70px; }
+.gd-sec h2 { margin: 0 0 14px; font-size: 24px; line-height: 1.3; display: flex; align-items: baseline; gap: 10px; text-wrap: balance; }
+.gd-sec h3 { margin: 18px 0 6px; font-size: 17px; }
+.gd-sec p, .gd-sec li { max-width: 62ch; }
+.gd-sec p { margin: 0 0 10px; }
+.gd-sec ul, .gd-sec ol { margin: 0 0 10px; padding-left: 22px; }
+.gd-sec li { margin: 3px 0; }
+.gd-n { font-size: 14px; font-weight: 700; color: var(--accent); font-variant-numeric: tabular-nums; }
+.gd-ui { font-size: .88em; font-weight: 600; background: var(--tile-mid); border: 1px solid var(--line); border-radius: 6px; padding: 1px 7px; white-space: nowrap; }
+
+.gd-split { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 28px; align-items: start; }
+.gd-txt { min-width: 0; }
+.gd-screens { display: flex; gap: 14px; flex-wrap: wrap; justify-content: center; }
+.gd-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 18px; justify-items: center; margin: 14px 0; }
+.gd-fig { margin: 0; display: grid; gap: 8px; justify-items: center; }
+.gd-phone { width: 220px; max-width: 100%; border-radius: 26px; padding: 6px; background: #000; border: 1px solid #333; box-shadow: 0 14px 40px rgba(0, 0, 0, .5); }
+.gd-phone img { display: block; width: 100%; height: auto; max-height: 520px; object-fit: cover; object-position: top; border-radius: 20px; }
+.gd-fig figcaption { font-size: 13px; color: var(--muted); text-align: center; max-width: 220px; line-height: 1.5; }
+.gd-fig figcaption b { color: var(--ink); }
+
+.gd-steps { list-style: none; padding: 0 !important; counter-reset: s; display: grid; gap: 10px; }
+.gd-steps li { counter-increment: s; position: relative; padding-left: 42px; margin: 0; }
+.gd-steps li::before { content: counter(s); position: absolute; left: 0; top: 0; width: 30px; height: 30px; border-radius: 50%;
+  background: var(--tile-mid); border: 1px solid var(--line); display: grid; place-items: center; font-size: 13px; font-weight: 700; color: var(--accent); }
+
+.gd-note { border-radius: 14px; padding: 12px 16px; font-size: 15px; background: var(--paper); border: 1px solid var(--line); }
+.gd-note.warn { background: #33290f; border-color: #4a3c16; color: #f1cf7b; }
+
+.gd-table { overflow-x: auto; margin: 10px 0; border: 1px solid var(--line); border-radius: 14px; max-width: 640px; }
+.gd-table table { border-collapse: collapse; width: 100%; font-size: 15px; min-width: 420px; }
+.gd-table th, .gd-table td { text-align: left; padding: 10px 14px; border-bottom: 1px solid var(--line); vertical-align: top; }
+.gd-table th { font-size: 13px; color: var(--muted); font-weight: 600; background: var(--paper); }
+.gd-table tr:last-child td { border-bottom: 0; }
+.gd-chip { display: inline-block; border-radius: 6px; padding: 0 8px; font-size: 13px; font-weight: 700; white-space: nowrap; }
+.gd-chip.ok { background: #16301d; color: #8fe0a6; } .gd-chip.warn { background: #33290f; color: #f1cf7b; } .gd-chip.bad { background: #3a1a14; color: #ff9d8a; }
+.gd-frame { display: inline-block; width: 14px; height: 14px; border-radius: 4px; vertical-align: -2px; border: 2px solid; }
+.gd-frame.g { border-color: #2fbf71; } .gd-frame.o { border-color: var(--accent); }
+
+.gd-proofs { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 14px; margin: 12px 0; }
+.gd-proof { background: var(--paper); border: 1px solid var(--line); border-radius: 16px; padding: 14px; display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: 14px; align-items: start; }
+.gd-proof img { width: 96px; border-radius: 10px; border: 1px solid var(--line); }
+.gd-proof h4 { margin: 0 0 4px; font-size: 15px; }
+.gd-proof.good h4 { color: #8fe0a6; } .gd-proof.meh h4 { color: #f1cf7b; }
+.gd-proof p { font-size: 14px; color: var(--muted); margin: 0; }
+
+.gd-faq { background: var(--paper); border: 1px solid var(--line); border-radius: 14px; padding: 12px 16px; margin: 8px 0; max-width: 720px; }
+.gd-faq summary { cursor: pointer; font-weight: 600; }
+.gd-faq p { margin: 8px 0 0; color: var(--muted); }
+.gd-foot { padding-top: 24px; border-top: 1px solid var(--line); }
+
+@media (max-width: 760px) {
+  .gd-split { grid-template-columns: minmax(0, 1fr); }
+  .gd-toc ol { columns: 2; }
+  .gd-phone { width: 200px; }
+}
+@media (max-width: 440px) {
+  .gd-wrap { padding: 0 16px 64px; }
+  .gd-toc ol { columns: 1; }
+  .gd-sec h2 { font-size: 21px; }
+  .gd-phone { width: 168px; }
+  .gd-fig figcaption { max-width: 168px; }
+}
